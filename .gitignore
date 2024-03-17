@@ -1,0 +1,27 @@
+__pycache__
+.RData
+peakcalling*
+test*
+
+### ignored for now, but will add up later
+frag*
+generate_bedfile.py 
+normalization.rmd
+reverse_original.py
+rtfbsdb.rmd 
+venn_plot.ipynb
+
+
+20231024_PROcap/
+20231025_K562_clear_divergent_peaks/
+enhancer_end/
+full/
+GRO_cap_PINTS_qpeak_call_117/
+normalization/
+output/
+
+partial/data/
+partial/fetch_seq/
+partial/helper/
+
+visualization/

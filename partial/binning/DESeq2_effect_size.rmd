@@ -1,0 +1,723 @@
+---
+title: "DESeq2_effect_size"
+author: "Yutong Zhu"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+setwd("/fs/cbsuhy01/storage/yz2676/data/STARR-seq/partial/binning")
+library(DESeq2)
+library(ggplot2)
+library(ggpubr)
+library(dplyr)
+library(wesanderson)
+```
+
+
+```{r}
+### Section 1.1:
+### read in the files & change column names
+#if wanted to compare both sides deletions and single-side, add in _b files
+
+full <- read.table("../../full/data/filtered/srt_full_TSS.bed")
+tss_p <- read.table("../data/deep_ATAC_STARR/filtered/srt_exch_TSS_max.bed")
+tss_n <- read.table("../data/deep_ATAC_STARR/filtered/srt_exch_TSS_min.bed")
+tss_b <- read.table("../data/deep_ATAC_STARR/filtered/srt_exch_TSS_b.bed")
+#tss_b <- read.table("../data/slidingw_tss/srt_slidingw_tss_b_1.bed")
+
+#full <- read.table("../../full/data/filtered/srt_full_ps.bed")
+#ps_p <- read.table("../data/deep_ATAC_STARR/filtered/srt_exch_ps_max.bed")
+#ps_n <- read.table("../data/deep_ATAC_STARR/filtered/srt_exch_ps_min.bed")
+#ps_b <- read.table("../data/deep_ATAC_STARR/filtered/srt_exch_ps_b.bed")
+
+## for GROcap dpr_ml analysis
+#full <- read.table("../../full/data/filtered/srt_full_dpr_low_conf.bed")
+#dpr_p <- read.table("../data/deep_ATAC_STARR/filtered/srt_exch_dpr_low_conf_max.bed")
+#dpr_n <- read.table("../data/deep_ATAC_STARR/filtered/srt_exch_dpr_low_conf_min.bed")
+#dpr_b <- read.table("../data/deep_ATAC_STARR/filtered/srt_exch_dpr_low_conf_b.bed")
+
+### read in control gene set 
+control_gene = read.table("../../normalization/srt_deep_ATAC_exon.bed")
+
+
+def_colnames = function(dataframe,name){
+  colnames(dataframe) = c("chr","start","end",
+                          paste0(name, "_DNA1"),
+                          paste0(name, "_DNA2"),
+                          paste0(name, "_DNA3"),
+                          paste0(name, "_DNA4"),
+                          paste0(name, "_DNA5"),
+                          paste0(name, "_DNA6"),
+                          paste0(name, "_RNA1"),
+                          paste0(name, "_RNA2"),
+                          paste0(name, "_RNA3"), 
+                          paste0(name, "_RNA4"))
+  return(dataframe)
+}
+```
+
+```{r}
+### Section 1.2:
+### alternative to merge all the designs in one big matrix
+rownames(full) <- paste0("Full", 1:nrow(full))
+rownames(tss_n) <- paste0("Tss_n", 1:nrow(tss_n))
+rownames(tss_p) <- paste0("Tss_p", 1:nrow(tss_p))
+#rownames(ps_p) <- paste0("Ps_p", 1:nrow(ps_p))
+#rownames(ps_n) <- paste0("Ps_n", 1:nrow(ps_n))
+#rownames(dpr_p) <- paste0("Dpr_p", 1:nrow(dpr_p))
+#rownames(dpr_n) <- paste0("Dpr_n", 1:nrow(dpr_n))
+
+rownames(tss_b) <- paste0("Tss_b", 1:nrow(tss_b))
+#rownames(ps_b) <- paste0("Ps_b", 1:nrow(ps_n))
+#rownames(dpr_b) <- paste0("Dpr_b", 1:nrow(dpr_n))
+
+rownames(control_gene) <- paste0("ctrl", 1:nrow(control_gene))
+all = bind_rows(full, tss_p, tss_n, tss_b, control_gene) # if only comparing deletion on one side, remove _b, otherwise, added in
+
+all <- all[, -(1:3)]
+rm(control_gene)
+filter_full <- which((rowSums(all)>10)[1:104]) # number of elements (full+p/n/(b))
+print(filter_full)
+all_fil <- all[which(rowSums(all)>10),]
+# all_fil <- rbind(all[filter_full,], all[2537:nrow(all),])
+rm(all)
+
+cts <- all_fil
+rownames(cts) <- rownames(all_fil)
+controlgene = seq(length(filter_full)+1, length=nrow(cts)-length(filter_full))
+
+coldata <- data.frame(colnames(cts))
+coldata$condition <- c(rep("DNA",6),rep("RNA",4))
+
+rownames(coldata) <- coldata$colnames.cts.
+coldata[,1] <- NULL
+coldata$condition <- factor(coldata$condition)
+
+## reset cts row index
+#row.names(cts) <- 1:nrow(cts)
+
+all(rownames(coldata) %in% colnames(cts))
+all(rownames(coldata) == colnames(cts))
+
+dds <- DESeqDataSetFromMatrix(countData = cts,
+                              colData = coldata,
+                              design = ~ condition)
+dds
+
+keep <- rowSums(counts(dds)) >= 10
+dds <- dds[keep,]
+
+#dds$condition <- relevel(dds$condition, ref = "DNA")
+
+dds <- estimateSizeFactors(dds, controlGenes=controlgene)#, type="poscounts")
+dds <- estimateDispersions(dds)
+dds <- nbinomWaldTest(dds)
+resultsNames(dds)
+res <- results(dds, contrast=c("condition", "RNA", "DNA"))
+
+#plotDispEsts(dds)
+```
+
+```{r}
+### Section 1.3:
+### alternative data analysis
+resLFC <- lfcShrink(dds, coef="condition_RNA_vs_DNA", type="apeglm")
+#resLFC
+
+#plotMA(res, ylim=c(-2,2))
+#plotMA(resLFC, ylim=c(-2,2))
+print(resLFC[which((resLFC[1:61,]$padj<0.05) == TRUE),]) # number is taken from filter_fill: counts>10
+
+write.table(resLFC[1:61,], file="../../normalization/DESeq/filtered/DE_results_tss.txt",
+            append = FALSE, sep = "\t", 
+            row.names = TRUE, col.names = TRUE)
+
+#write.table(resLFC[360:628,][which((resLFC[360:628,]$padj<0.1) == TRUE),], file="../../normalization/DESeq/DE_results_ps.txt",
+#            append = FALSE, sep = "\t", 
+#            row.names = TRUE, col.names = TRUE)
+```
+
+```{r}
+### Section 1.4:
+tss <- read.table("../../normalization/DESeq/filtered/DE_results_tss.txt")
+ps <- read.table("../../normalization/DESeq/filtered/DE_results_ps.txt")
+#ps <- read.table("../../normalization/DESeq/DE_results_ps_clear_Alden_filtered_psd.txt", sep="\t", header=TRUE)
+#ps <- read.table("../../normalization/DESeq/DE_results_ps_Alden_filtered_psd.txt", sep="\t", header=TRUE)
+#ps <- read.table("../../normalization/DESeq/DE_results_ps_Alden_not_deleted.txt", sep="\t", header=TRUE)
+#dpr <- read.table("../../normalization/DESeq/DE_results_dpr_Alden_filtered.txt", sep="\t", header=TRUE)
+#rownames(dpr) <- dpr$X
+#dpr <- dpr[, -1]
+dpr <- read.table("../../normalization/DESeq/filtered/DE_results_dpr_high_conf.txt", sep="\t", header=TRUE)
+
+
+### find the row index for full, tss_p, tss_n elements
+print(which(substring(rownames(tss), 1, 5)== "Tss_p"))
+#print(which(substring(rownames(ps), 1, 4)== "Ps_p"))
+#print(which(substring(rownames(dpr), 1, 5)== "Dpr_p"))
+# if two-side deletions are considered:
+print(which(substring(rownames(tss), 1, 5)== "Tss_b"))
+#print(which(substring(rownames(ps), 1, 4)== "Ps_b"))
+#print(which(substring(rownames(dpr), 1, 5)== "Dpr_b"))
+
+### save the elements for each subgroup
+full = substring(rownames(tss)[1:26], first=5)
+tss_p = substring(rownames(tss)[27:42], first=6)
+tss_n = substring(rownames(tss)[43:59], first=6)
+tss_b = substring(rownames(tss)[60:61], first=6)
+#full = substring(rownames(ps)[1:34], first=5)
+#ps_p = substring(rownames(ps)[35:61], first=5)
+#ps_n = substring(rownames(ps)[62:88], first=5)
+#ps_b = substring(rownames(ps)[89:105], first=5)
+#full = substring(rownames(dpr)[1:19], first=5)
+#dpr_p = substring(rownames(dpr)[20:27], first=6)
+#dpr_n = substring(rownames(dpr)[28:36], first=6)
+#dpr_b = substring(rownames(dpr)[37], first=6)
+
+## if checked manually that some indexes don't work out, delete them from the list here
+#for ps_clear: 
+#index_to_remove <- which(full %in% c(14,25,28,30,32))
+#for dpr:
+index_to_remove <- which(full %in% c(20, 25, 3, 11, 18, 21))
+#for tss:
+#index_to_remove <- which(full %in% c(6, 7, 16, 23, 39, 41, 42, 43, 44, 45, 46, 48, 55, 56, 57, 58, 75, 76, 77, 78, 83, 84, 32, 50, 73, 74, 10, 11, 12, 14, 18, 25, 26, 27, 28, 29, 43, 45, 49, 79, 80, 2, 5, 51, 61, 63, 21, 22))
+full <- full[-index_to_remove]
+
+# for one-side deletions
+common12 = intersect(full, tss_p)
+common13 = intersect(full, tss_n)
+merge = union(common12, common13)
+print(merge)
+
+# for two-side deletions
+common12 = intersect(full, tss_b)
+common1 = intersect(full, tss_p)
+common3 = intersect(full, tss_n)
+common13 = union(common1, common3)
+common = intersect(common12, common13)
+merge = union(common12, common13)
+print(common)
+print(merge)
+```
+
+```{r}
+### Section 1.5: # comparing pairwise (full to partial)
+get_effect_size = function(design, index){
+  es = c()
+  rn = c(rownames(tss))
+  for (pos in index) {
+    row = paste0(design, pos)
+    if (row %in% rn) {
+      es <- c(es, tss[paste0(design, pos),]$log2FoldChange)
+    }
+    else {
+      es <- c(es, NA)
+    }
+  }
+  return(es)
+}
+
+#effect_size_1 = get_effect_size("Full", common)
+#effect_size_2 = get_effect_size("Tss_p", common)
+#effect_size_3 = get_effect_size("Tss_n", common)
+
+# Plotting pairwise (TSS_p and TSS_n are not of same length)
+# effect_size_12 are those for p_value calculations
+# es_1 are those for plotting
+effect_size_12 = get_effect_size("Full", common12)
+effect_size_21 = get_effect_size("Tss_p", common12)
+effect_size_13 = get_effect_size("Full", common13)
+effect_size_31 = get_effect_size("Tss_n", common13)
+
+es_1 = get_effect_size("Full", merge)
+es_2 = get_effect_size("Tss_p", merge)
+es_3 = get_effect_size("Tss_n", merge)
+
+# Create a data frame with before and after values
+df <- data.frame(None = es_1, 'Maximum_TSSΔTSS' = es_2, 'Minimum_TSSΔTSS' = es_3)
+
+# Create a new column for index
+df$index <- 1:length(es_1)
+
+# Reshape the data into long format
+df_long <- tidyr::pivot_longer(df, cols = c("None", 'Maximum_TSSΔTSS', 'Minimum_TSSΔTSS'), names_to = "group", values_to = "values")
+
+# Specify the order of the levels in the "group" variable
+df_long$group <- factor(df_long$group, levels = c("Minimum_TSSΔTSS", "None", "Maximum_TSSΔTSS"))
+
+# Perform paired t-test
+result <- t.test(effect_size_13, effect_size_31, paired = TRUE)
+result_1 <- t.test(effect_size_12, effect_size_21, paired = TRUE)
+
+# Create the dot plot with lines
+ggplot(df_long, aes(x = group, y = values, color = group, group = index)) +
+  geom_point(size = 3) +    # Add dots for all values
+  geom_line(color = "grey") +    # Add lines connecting the dots
+  xlab("") +    # X-axis label (blank in this case)
+  ylab("Log2_effect_size") +    # Y-axis label
+  ggtitle("TSS loss") +    # Plot title
+  scale_color_manual(values = c("black", "red", "blue")) +   # Custom colors for the groups
+  annotate("text", x = 1.5, y = 6 + 0.4, 
+           label = paste("p-value:", format(result$p.value, digits = 3)), 
+           color = "black", size = 4.5, na.rm = TRUE) +
+  annotate("text", x = 2.5, y = 6 + 0.4,
+           label = paste("p-value:", format(result_1$p.value, digits = 3)),
+           color = "black", size = 4.5, na.rm = TRUE) +
+  annotate("text", x = 1.5, y = 6,
+           label = paste("n =", format(length(effect_size_13), digits = 3)),
+           color = "black", size = 4.5, na.rm = TRUE) +
+  annotate("text", x = 2.5, y = 6,
+           label = paste("n =", format(length(effect_size_12), digits = 3)),
+           color = "black", size = 4.5, na.rm = TRUE) +
+  theme(axis.text = element_text(size = 12),
+    panel.background = element_rect(fill = "transparent"), # bg of the panel
+    plot.background = element_rect(fill = "transparent", color = NA), # bg of the plot
+    panel.grid.major = element_blank(), # get rid of major grid
+    panel.grid.minor = element_blank(), # get rid of minor grid
+    legend.background = element_rect(fill = "transparent"), # get rid of legend bg
+    legend.box.background = element_rect(fill = "transparent"), # get rid of legend panel bg
+    legend.key = element_rect(fill = "transparent", colour = NA), # get rid of key legend fill, and of the surrounding
+    axis.line = element_line(colour = "black"), # adding a black line for x and y axis
+    plot.title = element_text(hjust = 0.5)
+  )
+```
+
+```{r}
+### Section 1.5 - two-sides:
+get_effect_size = function(design, index){
+  es = c()
+  rn = c(rownames(tss))
+  for (pos in index) {
+    row = paste0(design, pos)
+    if (row %in% rn) {
+      es <- c(es, tss[paste0(design, pos),]$log2FoldChange)
+    }
+    else {
+      es <- c(es, NA)
+    }
+  }
+  return(es)
+}
+
+# effect_size_12 are those for TSS_b
+# effect_size_13 are for TSS_p + TSS_n (needs concatenation)
+# these are for t.test
+effect_size_12 = get_effect_size("Full", common12)
+effect_size_21 = get_effect_size("Tss_b", common12)
+
+effect_size_13_1 = get_effect_size("Full", common1)
+effect_size_13_2 = get_effect_size("Full", common3)
+effect_size_13 = c(effect_size_13_1, effect_size_13_2)
+
+effect_size_31_1 = get_effect_size("Tss_p", common1)
+effect_size_31_2 = get_effect_size("Tss_n", common3)
+effect_size_31 = c(effect_size_31_1, effect_size_31_2)
+
+# when drawing the dots, need to get the union
+es_1_1 = get_effect_size("Full", merge)
+es_1 = c(es_1_1, es_1_1)
+
+es_2_1 = get_effect_size("Tss_b", merge)
+es_2 = c(es_2_1, es_2_1)
+
+es_3_1 = get_effect_size("Tss_p", merge)
+es_3_2 = get_effect_size("Tss_n", merge)
+es_3 = c(es_3_1, es_3_2)
+
+# Creating a graph with only those that appear in two_sides deletions
+#es_1_1 = get_effect_size("Full", common)
+#es_1 = c(es_1_1, es_1_1)
+#es_2_1 = get_effect_size("Ps_b", common)
+#es_2 = c(es_2_1, es_2_1)
+#effect_size_31 = get_effect_size("Ps_p", common)
+#effect_size_32 = get_effect_size("Ps_n", common)
+#es_3 = c(effect_size_31, effect_size_32)
+
+# Create a data frame with before and after values
+#df <- data.frame(None = es_1, 'Two.sidesΔpause.sites' = es_2, 'One.sideΔpause.sites' = es_3)
+df <- data.frame(None = es_1, 'Two.sidesΔTSS' = es_2, 'One.sideΔTSS' = es_3)
+
+# Create a new column for index
+df$index <- 1:length(es_1)
+
+# Reshape the data into long format
+df_long <- tidyr::pivot_longer(df, cols = c("None", 'Two.sidesΔTSS', 'One.sideΔTSS'), names_to = "group", values_to = "values")
+
+# Specify the order of the levels in the "group" variable
+df_long$group <- factor(df_long$group, levels = c("One.sideΔTSS", "None", "Two.sidesΔTSS"))
+
+# Perform paired t-test
+result <- t.test(effect_size_13, effect_size_31, paired = TRUE)
+#result_1 <- t.test(effect_size_12, effect_size_21, paired = TRUE)
+
+# Create the dot plot with lines
+ggplot(df_long, aes(x = group, y = values, color = group, group = index)) +
+  geom_point(size = 3) +    # Add dots for all values
+  geom_line(color = "grey") +    # Add lines connecting the dots
+  xlab("") +    # X-axis label (blank in this case)
+  ylab("Log2_effect_size") +    # Y-axis label
+  ggtitle("TSS loss") +    # Plot title
+  scale_color_manual(values = c("black", "red", "blue")) +   # Custom colors for the groups
+  annotate("text", x = 1.5, y = 6 + 0.4, 
+           label = paste("p-value:", format(result$p.value, digits = 3)), 
+           color = "black", size = 4.5, na.rm = TRUE) +
+ 
+  annotate("text", x = 1.5, y = 6,
+           label = paste("n =", format(length(effect_size_13), digits = 3)),
+           color = "black", size = 4.5, na.rm = TRUE) +
+  annotate("text", x = 2.5, y = 6,
+           label = paste("n =", format(length(effect_size_12), digits = 3)),
+           color = "black", size = 4.5, na.rm = TRUE) +
+  theme(axis.text = element_text(size = 12),
+    panel.background = element_rect(fill = "transparent"), # bg of the panel
+    plot.background = element_rect(fill = "transparent", color = NA), # bg of the plot
+    panel.grid.major = element_blank(), # get rid of major grid
+    panel.grid.minor = element_blank(), # get rid of minor grid
+    legend.background = element_rect(fill = "transparent"), # get rid of legend bg
+    legend.box.background = element_rect(fill = "transparent"), # get rid of legend panel bg
+    legend.key = element_rect(fill = "transparent", colour = NA), # get rid of key legend fill, and of the surrounding
+    axis.line = element_line(colour = "black"), # adding a black line for x and y axis
+    plot.title = element_text(hjust = 0.5)
+  )
+```
+
+
+```{r}
+### Section 1.6:
+### Check reverse trend elements
+## Check individually
+ls = list()
+for (count in common12) {
+  if (tss[paste0("Full",count),]$log2FoldChange < tss[paste0("Tss_p",count),]$log2FoldChange){
+    ls[[length(ls) + 1]] <- count
+  }
+}
+for (count in common13){
+  if (tss[paste0("Full",count),]$log2FoldChange < tss[paste0("Tss_n",count),]$log2FoldChange){
+    ls[[length(ls) + 1]] <- count
+  }
+}
+```
+
+```{r}
+### Section 1.7:
+### Plot the violin graph of the means
+df_violin <- tidyr::pivot_longer(df, cols = c("None", 'Maximum_TSSΔPS', 'Minimum_TSSΔPS'), names_to = "group", values_to = "values")
+
+# Specify the order of the levels in the "group" variable
+df_violin$group <- factor(df_violin$group, levels = c("Minimum_TSSΔPS", "None", "Maximum_TSSΔPS"))
+
+p <- ggplot(df_violin, aes(x=group, y=values, fill=group)) + 
+  geom_violin(trim = FALSE)+
+  geom_boxplot(width = 0.07)+
+  scale_fill_manual(values=wes_palette(n=3, name="Royal1"))+
+  #geom_hline(yintercept=1, color="red", linetype="dashed")+
+  ggtitle("Deep_ATAC_STARR partial enhancer element activity")+
+  stat_compare_means()+
+  theme(
+    legend.title = element_text(size=16),
+    legend.text = element_text(size=12),
+    axis.title = element_text(size=16),
+    axis.text = element_text(size=12),
+    plot.title = element_text(size=18),
+    panel.background = element_rect(fill = "transparent"), # bg of the panel
+    plot.background = element_rect(fill = "transparent", color = NA), # bg of the plot
+    panel.grid.major = element_blank(), # get rid of major grid
+    panel.grid.minor = element_blank(), # get rid of minor grid
+    legend.background = element_rect(fill = "transparent"), # get rid of legend bg
+    legend.box.background = element_rect(fill = "transparent"), # get rid of legend panel bg
+    legend.key = element_rect(fill = "transparent", colour = NA), # get rid of key legend fill, and of the surrounding
+    axis.line = element_line(colour = "black") # adding a black line for x and y axis
+)
+p
+```
+
+```{r}
+### Section 2:
+### A new pipeline for analyzing full element activities with orientation independency
+#full_f <- read.table("../../full/srt_f_full.bed")
+#full_r <- read.table("../../full/srt_r_full.bed")
+full_f <- read.table("../../enhancer_end/data/srt_f_full.bed")
+full_r <- read.table("../../enhancer_end/data/srt_r_full.bed")
+
+### read in control gene set 
+control_gene = read.table("../../normalization/srt_deep_ATAC_exon.bed")
+
+def_colnames = function(dataframe,name){
+  colnames(dataframe) = c("chr","start","end",
+                          paste0(name, "_DNA1"),
+                          paste0(name, "_DNA2"),
+                          paste0(name, "_DNA3"),
+                          paste0(name, "_DNA4"),
+                          paste0(name, "_DNA5"),
+                          paste0(name, "_DNA6"),
+                          paste0(name, "_RNA1"),
+                          paste0(name, "_RNA2"),
+                          paste0(name, "_RNA3"), 
+                          paste0(name, "_RNA4"))
+  return(dataframe)
+}
+```
+
+```{r}
+rownames(full_f) <- paste0("Full_f", 1:nrow(full_f))
+rownames(full_r) <- paste0("Full_r", 1:nrow(full_r))
+rownames(control_gene) <- paste0("ctrl", 1:nrow(control_gene))
+all = bind_rows(full_f, full_r, control_gene)
+
+all <- all[, -(1:3)]
+rm(control_gene)
+filter_full <- which((rowSums(all)>10)[1:1454]) # number of elements (full f/r)
+all_fil <- all[which(rowSums(all)>10),]
+# all_fil <- rbind(all[filter_full,], all[2537:nrow(all),])
+rm(all)
+
+cts <- all_fil
+rownames(cts) <- rownames(all_fil)
+controlgene = seq(length(filter_full)+1, length=nrow(cts)-length(filter_full))
+
+coldata <- data.frame(colnames(cts))
+coldata$condition <- c(rep("DNA",6),rep("RNA",4))
+
+rownames(coldata) <- coldata$colnames.cts.
+coldata[,1] <- NULL
+coldata$condition <- factor(coldata$condition)
+
+## reset cts row index
+#row.names(cts) <- 1:nrow(cts)
+
+all(rownames(coldata) %in% colnames(cts))
+all(rownames(coldata) == colnames(cts))
+
+dds <- DESeqDataSetFromMatrix(countData = cts,
+                              colData = coldata,
+                              design = ~ condition)
+dds
+
+keep <- rowSums(counts(dds)) >= 10
+dds <- dds[keep,]
+
+#dds$condition <- relevel(dds$condition, ref = "DNA")
+
+dds <- estimateSizeFactors(dds, controlGenes=controlgene)#, type="poscounts")
+dds <- estimateDispersions(dds)
+dds <- nbinomWaldTest(dds)
+resultsNames(dds)
+res <- results(dds, contrast=c("condition", "RNA", "DNA"))
+
+#plotDispEsts(dds)
+```
+
+```{r}
+resLFC <- lfcShrink(dds, coef="condition_RNA_vs_DNA", type="apeglm")
+resLFC
+
+#plotMA(res, ylim=c(-2,2))
+#plotMA(resLFC, ylim=c(-2,2))
+print(resLFC[which((resLFC[1:407,]$padj<0.05) == TRUE),]) # number is taken from filter_fill: counts>10
+
+write.table(resLFC[which((resLFC[1:407,]$padj<0.05) == TRUE),], file="../../normalization/DESeq/DE_results_full_EnhancerNet.txt",
+            append = FALSE, sep = "\t", 
+            row.names = TRUE, col.names = TRUE)
+```
+
+```{r}
+full <- read.table("../../normalization/DESeq/DE_results_full_EnhancerNet.txt")
+
+### find the row index for full_f elements
+print(which(substring(rownames(full), 1, 6)== "Full_f"))
+
+### save the elements for each subgroup
+full_f = substring(rownames(full)[1:20], first=7)
+full_r = substring(rownames(full)[21:44], first=7)
+
+common = intersect(full_f, full_r)
+print(common)
+
+### need to find the original element
+ori_f <- read.table("../../enhancer_end/data/srt_f_full.bed")
+ori_r <- read.table("../../enhancer_end/data/srt_r_full.bed")
+
+rownames(ori_f) <- paste0("Full_f", 1:nrow(ori_f))
+rownames(ori_r) <- paste0("Full_r", 1:nrow(ori_r))
+
+names_f <- paste0("Full_f", common)
+names_r <- paste0("Full_r", common)
+
+# Filter dataframe based on the numbers in names
+filtered_rows_f <- ori_f[rownames(ori_f) %in% names_f, ]
+filtered_rows_r <- ori_r[rownames(ori_r) %in% names_r, ]
+
+write.table(filtered_rows_f, file="../../enhancer_end/data/srt_f_full_e.bed",
+            append = FALSE, sep = "\t", 
+            row.names = FALSE, col.names = FALSE)
+
+write.table(filtered_rows_r, file="../../enhancer_end/data/srt_r_full_e.bed",
+            append = FALSE, sep = "\t", 
+            row.names = FALSE, col.names = FALSE)
+
+```
+
+```{r}
+### Analyze full enhancers with their deleted corresponding elements pairwise
+full <- read.table("../../full/data/filtered/srt_exch_full_TSS_p.bed")
+tss_p <- read.table("../data/deep_ATAC_STARR/filtered/srt_exch_TSS_p.bed")
+
+### read in control gene set 
+control_gene = read.table("../../normalization/srt_deep_ATAC_exon.bed")
+
+def_colnames = function(dataframe,name){
+  colnames(dataframe) = c("chr","start","end",
+                          paste0(name, "_DNA1"),
+                          paste0(name, "_DNA2"),
+                          paste0(name, "_DNA3"),
+                          paste0(name, "_DNA4"),
+                          paste0(name, "_DNA5"),
+                          paste0(name, "_DNA6"),
+                          paste0(name, "_RNA1"),
+                          paste0(name, "_RNA2"),
+                          paste0(name, "_RNA3"), 
+                          paste0(name, "_RNA4"))
+  return(dataframe)
+}
+```
+
+```{r}
+rownames(full) <- paste0("Full", 1:nrow(full))
+rownames(tss_p) <- paste0("TSS_p", 1:nrow(tss_p))
+rownames(control_gene) <- paste0("ctrl", 1:nrow(control_gene))
+all = bind_rows(full, tss_p, control_gene)
+
+all <- all[, -(1:3)]
+rm(control_gene)
+filter_full <- which((rowSums(all)>10)[1:116]) # number of elements (full/partial)
+print(filter_full)
+all_fil <- rbind(all[filter_full,], all[117:nrow(all),])
+rm(all)
+
+cts <- all_fil
+rownames(cts) <- rownames(all_fil)
+controlgene = seq(length(filter_full)+1, length=nrow(cts)-length(filter_full))
+
+coldata <- data.frame(colnames(cts))
+coldata$condition <- c(rep("DNA",6),rep("RNA",4))
+
+rownames(coldata) <- coldata$colnames.cts.
+coldata[,1] <- NULL
+coldata$condition <- factor(coldata$condition)
+
+## reset cts row index
+#row.names(cts) <- 1:nrow(cts)
+
+all(rownames(coldata) %in% colnames(cts))
+all(rownames(coldata) == colnames(cts))
+
+dds <- DESeqDataSetFromMatrix(countData = cts,
+                              colData = coldata,
+                              design = ~ condition)
+dds
+
+keep <- rowSums(counts(dds)) >= 10
+dds <- dds[keep,]
+
+#dds$condition <- relevel(dds$condition, ref = "DNA")
+
+dds <- estimateSizeFactors(dds, controlGenes=controlgene)#, type="poscounts")
+dds <- estimateDispersions(dds)
+dds <- nbinomWaldTest(dds)
+resultsNames(dds)
+res <- results(dds, contrast=c("condition", "RNA", "DNA"))
+```
+
+```{r}
+resLFC <- lfcShrink(dds, coef="condition_RNA_vs_DNA", type="apeglm")
+resLFC
+
+#plotMA(res, ylim=c(-2,2))
+#plotMA(resLFC, ylim=c(-2,2))
+print(resLFC[which((resLFC[1:108,]$padj<0.05) == TRUE),]) # number is taken from filter_fill: counts>10
+
+write.table(resLFC[1:108,], file="../../normalization/DESeq/filtered/DE_results_tss_p.txt",
+            append = FALSE, sep = "\t", 
+            row.names = TRUE, col.names = TRUE)
+
+```
+
+```{r}
+tss <- read.table("../../normalization/DESeq/filtered/DE_results_tss_p.txt")
+
+### find the row index for full_f elements
+print(which(substring(rownames(tss), 1, 4)== "Full"))
+
+### save the elements for each subgroup
+full = substring(rownames(tss)[1:58], first=5)
+tss_p = substring(rownames(tss)[59:108], first=6)
+
+common = intersect(full, tss_p)
+print(common)
+
+
+t_full <- rbind(tss["Full1",],tss["Full2",],tss["Full3",],tss["Full4",],tss["Full6",],tss["Full8",],tss["Full9",],tss["Full11",],tss["Full12",],tss["Full13",],tss["Full14",],tss["Full15",],tss["Full16",],tss["Full17",],tss["Full18",],tss["Full19",],tss["Full20",],tss["Full21",],tss["Full24",],tss["Full25",],tss["Full26",],tss["Full27",],tss["Full28",],tss["Full29",],tss["Full30",],tss["Full31",],tss["Full33",],tss["Full34",],tss["Full35",],tss["Full37",],tss["Full38",],tss["Full39",],tss["Full40",],tss["Full41",],tss["Full42",],tss["Full43",],tss["Full44",],tss["Full45",],tss["Full46",],tss["Full47",],tss["Full48",],tss["Full49",],tss["Full50",],tss["Full51",],tss["Full52",],tss["Full53",],tss["Full54",],tss["Full55",],tss["Full57",],tss["Full58",])
+
+t_tss_p <- rbind(tss["TSS_p1",],tss["TSS_p2",],tss["TSS_p3",],tss["TSS_p4",],tss["TSS_p6",],tss["TSS_p8",],tss["TSS_p9",],tss["TSS_p11",],tss["TSS_p12",],tss["TSS_p13",],tss["TSS_p14",],tss["TSS_p15",],tss["TSS_p16",],tss["TSS_p17",],tss["TSS_p18",],tss["TSS_p19",],tss["TSS_p20",],tss["TSS_p21",],tss["TSS_p24",],tss["TSS_p25",],tss["TSS_p26",],tss["TSS_p27",],tss["TSS_p28",],tss["TSS_p29",],tss["TSS_p30",],tss["TSS_p31",],tss["TSS_p33",],tss["TSS_p34",],tss["TSS_p35",],tss["TSS_p37",],tss["TSS_p38",],tss["TSS_p39",],tss["TSS_p40",],tss["TSS_p41",],tss["TSS_p42",],tss["TSS_p43",],tss["TSS_p44",],tss["TSS_p45",],tss["TSS_p46",],tss["TSS_p47",],tss["TSS_p48",],tss["TSS_p49",],tss["TSS_p50",],tss["TSS_p51",],tss["TSS_p52",],tss["TSS_p53",],tss["TSS_p54",],tss["TSS_p55",],tss["TSS_p57",],tss["TSS_p58",])
+
+
+#t_full <- rbind(tss["Full1",],tss["Full2",],tss["Full3",],tss["Full4",],tss["Full5",],tss["Full7",],tss["Full8",],tss["Full9",],tss["Full11",],tss["Full14",],tss["Full15",],tss["Full17",],tss["Full18",],tss["Full19",],tss["Full20",],tss["Full21",],tss["Full23",],tss["Full24",],tss["Full26",],tss["Full27",],tss["Full28",],tss["Full29",],tss["Full30",],tss["Full31",],tss["Full32",],tss["Full33",],tss["Full35",],tss["Full36",],tss["Full37",],tss["Full38",],tss["Full39",])
+
+#t_tss_n <- rbind(tss["TSS_n1",],tss["TSS_n2",],tss["TSS_n3",],tss["TSS_n4",],tss["TSS_n5",],tss["TSS_n7",],tss["TSS_n8",],tss["TSS_n9",],tss["TSS_n11",],tss["TSS_n14",],tss["TSS_n15",],tss["TSS_n17",],tss["TSS_n18",],tss["TSS_n19",],tss["TSS_n20",],tss["TSS_n21",],tss["TSS_n23",],tss["TSS_n24",],tss["TSS_n26",],tss["TSS_n27",],tss["TSS_n28",],tss["TSS_n29",],tss["TSS_n30",],tss["TSS_n31",],tss["TSS_n32",],tss["TSS_n33",],tss["TSS_n35",],tss["TSS_n36",],tss["TSS_n37",],tss["TSS_n38",],tss["TSS_n39",])
+
+
+#t_full <- rbind(dpr["Full1",],dpr["Full2",],dpr["Full3",],dpr["Full4",],dpr["Full5",],dpr["Full7",],dpr["Full8",],dpr["Full9",],dpr["Full10",])
+
+#t_dn <- rbind(dpr["Dpr_n65",],dpr["Dpr_n121",],dpr["Dpr_n137",],dpr["Dpr_n161",],dpr["Dpr_n186",],dpr["Dpr_n248",],dpr["Dpr_n366",],dpr["Dpr_n668",],dpr["Dpr_n676",],dpr["Dpr_n939",],dpr["Dpr_n971",],dpr["Dpr_n982",],dpr["Dpr_n1009",],dpr["Dpr_n1196",],dpr["Dpr_n1232",],dpr["Dpr_n1408",])
+
+#t_dp <- rbind(dpr["Dpr_p1",],dpr["Dpr_p2",],dpr["Dpr_p3",],dpr["Dpr_p4",],dpr["Dpr_p5",],dpr["Dpr_p6",],dpr["Dpr_p8",],dpr["Dpr_p9",],dpr["Dpr_p10",],dpr["Dpr_p11",],dpr["Dpr_p12",],dpr["Dpr_p13",],dpr["Dpr_p14",])
+
+#t_db <- rbind(dpr["DPR_b1",],dpr["DPR_b2",],dpr["DPR_b3",],dpr["DPR_b4",],dpr["DPR_b5",],dpr["DPR_b7",],dpr["DPR_b8",],dpr["DPR_b9",],dpr["DPR_b10",])
+
+
+effect_size_1 = as.numeric(t_full$log2FoldChange) 
+effect_size_2 = as.numeric(t_tss_p$log2FoldChange)
+
+# Create a data frame with before and after values
+df <- data.frame(full = effect_size_1, TSS_p = effect_size_2)
+
+# Reshape the data into long format
+df_long <- tidyr::pivot_longer(df, cols = c("full", "TSS_p"), names_to = "group", values_to = "values")
+
+df_long$group <- factor(df_long$group, levels = c("TSS_p","full"))
+
+# Create a column for connecting lines
+df_long$line_group <- rep(1:length(effect_size_1), each = 2)
+
+# Perform paired t-test
+result <- t.test(effect_size_1, effect_size_2, paired = TRUE)
+
+# Create the dot plot with lines
+ggplot(df_long, aes(x = group, y = values, color = group, group = line_group)) +
+  geom_point(size = 3) +
+  geom_line(color = "grey") +
+  xlab("") + 
+  ylab("Log2 Effect Size") +
+  ggtitle("Pairwise comparison on TSS loss") +
+  scale_color_manual(values = c("red", "black")) +
+  annotate("text", x = 1.5, y = max(df_long$values) + 0.2, 
+           label = paste("p-value:", format(result$p.value, digits = 3)), 
+           color = "black", size = 4.5) +
+  annotate("text", x = 2.5, y = max(df_long$values) - 0.2,
+           label = paste("n =", format(length(effect_size_1), digits = 3)),
+           color = "black", size = 4.5) +
+  theme(axis.text = element_text(size = 12),
+    panel.background = element_rect(fill = "transparent"), # bg of the panel
+    plot.background = element_rect(fill = "transparent", color = NA), # bg of the plot
+    panel.grid.major = element_blank(), # get rid of major grid
+    panel.grid.minor = element_blank(), # get rid of minor grid
+    legend.background = element_rect(fill = "transparent"), # get rid of legend bg
+    legend.box.background = element_rect(fill = "transparent"), # get rid of legend panel bg
+    legend.key = element_rect(fill = "transparent", colour = NA), # get rid of key legend fill, and of the surrounding
+    axis.line = element_line(colour = "black"), # adding a black line for x and y axis
+    plot.title = element_text(hjust = 0.5)
+  )
+```
+
