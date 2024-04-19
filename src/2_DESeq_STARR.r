@@ -1,5 +1,8 @@
 #!/usr/bin/env /programs/R-4.2.1-r9/bin/Rscript
 
+# Sample command to run the script: 
+# /programs/R-4.2.1-r9/bin/Rscript 2_DESeq_STARR.r -o /path_to_file/EnhancerNet --name 5p, 3p
+
 def_colnames <- function(dataframe, name, suffixes){
   base_suffixes <- c("chr","start","end")
   dynamic_names <- sapply(suffixes, function(suffix) paste0(name, "_", suffix))

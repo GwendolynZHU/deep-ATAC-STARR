@@ -1,6 +1,10 @@
 """
 Reorganizing my code.
 
+Sample run: 
+python3 1_process_bed.py --outdir /output_path/EnhancerNet --enh_file /path_to_file/Enhancer_K562_5p+60_boundaries_pause_site_b.bed --design full
+python3 1_process_bed.py --outdir /output_path/EnhancerNet --enh_file /path_to_file/Enhancer_K562_5p_boundaries_pause_site_b.bed --design 5p
+
 Author: Yutong Zhu
 Date: 2024-04-10
 """
@@ -73,14 +77,6 @@ def parse_args():
     parser.add_argument('--outdir', required=True, help="Output directory")
     parser.add_argument('--enh_file', required=True, help="Path to .bed enhancer file, should be in the format of eight or four required fields. (chr, chromStart, chromEnd, name, score, strand, thickStart, thickEnd).")
     parser.add_argument('--design', required=True, default="full", help="Processing the full or partial element.")
-
-    # parser.add_argument('--juicebox', required=True, default="", help="path to juicebox executable or java command invoking juicer_tools.jar. eg: 'java -jar juicer_tools.jar'")
-    # parser.add_argument('--resolution', default=5000, help="Resolution of HiC to download. In units of bp.")
-    # parser.add_argument('--include_raw', action="store_true", help="Download raw matrix in addtion to KR")
-    # parser.add_argument('--chromosomes', default="all", help="comma delimited list of chromosomes to download")
-    # parser.add_argument('--chromosome-prefix', default="", 
-    #                     help="Add prefix to chromosome names. For example, ENCODE processed HiC file needs to add chr")
-    # parser.add_argument('--skip_gzip', action="store_true", help="dont gzip hic files")
 
     return parser.parse_args()
 

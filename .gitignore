@@ -19,9 +19,10 @@ full/
 GRO_cap_PINTS_qpeak_call_117/
 normalization/
 output/
+old_code/
+EnhancerNet/
+new_data/
+partial/
 
-partial/data/
-partial/fetch_seq/
-partial/helper/
 
 visualization/
