@@ -104,7 +104,14 @@ def main(args):
 
     ### Grep the partial enhancer reads
     elif file_source == "PINTS": #partial
-        pass
+        ### func to generate partial deletions - save that to outdir/design_ref
+        designs = ["pause_site_b", "pause_site_n", "pause_site_p", "TSS_b", "TSS_n", "TSS_p"]
+        
+        for design in designs:
+            ref_path = args.outdir+"/design_ref/divergent_60bp_without_"+design+".bed"
+            ref_file = pybedtools.BedTool(ref_path).to_dataframe(disable_auto_names=True, header=None)
+            extract_reads(ref_file, file_source, design, args.outdir)
+
     else: #partial EnhancerNet
         extract_reads(ref_file, file_source, args.design, args.outdir)
         select_pairs(args.outdir, args.design)

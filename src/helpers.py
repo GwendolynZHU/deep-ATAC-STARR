@@ -210,8 +210,8 @@ def select_pairs(outdir, design):
     rv = overlap.iloc[:,list(range(0, 3)) + list(range(16, 29))]
     # print(rv)
     # print("full: ", len(overlap))
-    fd.to_csv(outdir+"/"+design+"/srt_"+design+"_f_pairwise.bed", sep='\t', index=False, header=False)
-    rv.to_csv(outdir+"/"+design+"/srt_"+design+"_r_pairwise.bed", sep='\t', index=False, header=False)
+    fd.to_csv(outdir+"/"+design+"/srt_"+design+"_f.bed", sep='\t', index=False, header=False)
+    rv.to_csv(outdir+"/"+design+"/srt_"+design+"_r.bed", sep='\t', index=False, header=False)
     print("Pairwise elements saved.")
 
 
