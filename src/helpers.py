@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 import pybedtools
 import os
-from subprocess import check_call
+from subprocess import check_call, call
 from functools import reduce
 
 def run_command(command, **args):
@@ -169,6 +169,13 @@ def append_file(out_dir, design, orie, dnas, rnas):
 
     return input_ls
 
+
+def safe_sort(input, output):
+    """ 
+    """
+    call("sort -k1,1 -k2,2n -V " + input + " > " + output, shell=True)
+
+
 ### func for combining results from biological repeats + DNA/RNA
 def combine(input_list, outdir, design, orie):
     """
@@ -190,9 +197,11 @@ def combine(input_list, outdir, design, orie):
 
     output_df = output_12[output_12[0] != "chrN"]
     # print(output_12)
-    output_df.to_csv(outdir+"/"+design+"/"+design+"_"+orie+".bed", sep='\t', index=False, header=False)
-    cmds = ["sort -k1,1 -k2,2n -V "+outdir+"/"+design+"/"+design+"_"+orie+".bed > "+outdir+"/"+design+"/srt_"+design+"_"+orie+".bed",\
-            "rm "+outdir+"/"+design+"/"+design+"_"+orie+".bed"]
+    unsrt_path = outdir+"/"+design+"/"+design+"_"+orie+".bed"
+    srt_path = outdir+"/"+design+"/srt_"+design+"_"+orie+".bed"
+    output_df.to_csv(unsrt_path, sep='\t', index=False, header=False)
+    cmds = [safe_sort(unsrt_path, srt_path),\
+            "rm " + unsrt_path]
     
     for cmd in cmds:
         os.system(cmd)
@@ -216,34 +225,33 @@ def select_pairs(outdir, design):
 
 
 ### func for generating partial elements
-def judge_condition(condition, strand):
+def generate_partial_elements(input_file, outdir):
     """
-    Helper function.
-    Return the corresponding start and end site.
+    Generate bedfile for all designs.
     """
-    if condition == "PAUSE_SITE" and strand == "BOTH":
-        start = -15
-        end = -15
-        name = "_pause_site_b"
-    elif condition == "PAUSE_SITE" and strand == "P":
-        start = 0
-        end = -15
-        name = "_pause_site_p"
-    elif condition == "PAUSE_SITE" and strand == "N":
-        start = -15
-        end = 0
-        name = "_pause_site_n"
-    elif condition == "TSS" and strand == "P":
-        start = 0
-        end = 32
-        name = "_TSS_p"
-    elif condition == "TSS" and strand == "N":
-        start = 32
-        end = 0
-        name = "_TSS_n"
-    elif condition == "TSS" and strand == "BOTH":  # add TSS_b to the design
-        start = 32
-        end = 32
-        name = "_TSS_b"
+    full_enh = pybedtools.BedTool(input_file).to_dataframe()
 
-    return [start, end, name]
+    config = {
+        ("pause_site", "b"): (-15,-15,"pause_site_b"),
+        ("pause_site", "p"): (0,-15,"pause_site_p"),
+        ("pause_site", "n"): (-15,0,"pause_site_n"),
+        ("tss", "b"): (32,32,"TSS_b"),
+        ("tss", "p"): (0,32,"TSS_p"),
+        ("tss", "n"): (32,0,"TSS_n"),
+    }
+
+    for (condition, strand) in config.keys():
+        start, end, name = config.get((condition, strand))
+
+        partial = full_enh
+        partial["start"] = full_enh["thickStart"] + start
+        partial["end"] = full_enh["thickEnd"] - end
+        partial = partial[partial["end"]-partial["start"]>=40]
+
+        out_path = outdir + "/design_ref"
+        os.makedirs(out_path, exist_ok=True)
+
+        out_file = out_path + "/divergent_60bp_without_" + name + ".bed"
+        partial.to_csv(out_file, sep="\t", header=False, index=False)
+    
+    print("Finished generating partial deletion references.")

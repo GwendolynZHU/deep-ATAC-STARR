@@ -15,7 +15,7 @@ import pybedtools
 import subprocess
 import pandas as pd
 from multiprocessing import Pool
-from helpers import write_params, get_reference, grace_period_bins, align, count_mapped_bins, append_file, combine, select_pairs
+from helpers import write_params, get_reference, grace_period_bins, align, count_mapped_bins, append_file, combine, select_pairs, generate_partial_elements
 
 def extract_reads(ref_file, file_source, design, dir):
     """ 
@@ -105,6 +105,7 @@ def main(args):
     ### Grep the partial enhancer reads
     elif file_source == "PINTS": #partial
         ### func to generate partial deletions - save that to outdir/design_ref
+        generate_partial_elements(args.enh_file, args.outdir)
         designs = ["pause_site_b", "pause_site_n", "pause_site_p", "TSS_b", "TSS_n", "TSS_p"]
         
         for design in designs:
