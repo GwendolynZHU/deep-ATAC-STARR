@@ -200,8 +200,8 @@ def combine(input_list, outdir, design, orie):
     unsrt_path = outdir+"/"+design+"/"+design+"_"+orie+".bed"
     srt_path = outdir+"/"+design+"/srt_"+design+"_"+orie+".bed"
     output_df.to_csv(unsrt_path, sep='\t', index=False, header=False)
-    cmds = [safe_sort(unsrt_path, srt_path),\
-            "rm " + unsrt_path]
+    safe_sort(unsrt_path, srt_path)
+    cmds = ["rm " + unsrt_path]
     
     for cmd in cmds:
         os.system(cmd)

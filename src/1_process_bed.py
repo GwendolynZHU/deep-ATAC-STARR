@@ -14,12 +14,21 @@ import sys
 import pybedtools
 import subprocess
 import pandas as pd
+import tempfile
+import shutil
 from multiprocessing import Pool
 from helpers import write_params, get_reference, grace_period_bins, align, count_mapped_bins, append_file, combine, select_pairs, generate_partial_elements
+
+
+# Create a temporary directory and set pybedtools to use that directory
+temp_dir = tempfile.mkdtemp()
+pybedtools.helpers.set_tempdir(temp_dir)
+
 
 def extract_reads(ref_file, file_source, design, dir):
     """ 
     """
+    print("Generating files for " + design + " ... ")
     DNA_path = "/fs/cbsuhy01/storage/jz855/STARR_seq_dataset/deep_ATAC_STARR/processing_data_v1/out_DNA_no_UMI/"
     RNA_path = "/fs/cbsuhy01/storage/jz855/STARR_seq_dataset/deep_ATAC_STARR/processing_data_v1/out_RNA_with_UMI/"
     new_RNA_path = "/fs/cbsuhy01/storage/jz855/STARR_seq_dataset/deep_ATAC_STARR/processing_data_v1/out_RNA_with_UMI_2024_04/"
@@ -118,7 +127,9 @@ def main(args):
         select_pairs(args.outdir, args.design)
         
     pybedtools.cleanup(remove_all=True)
-        
+    shutil.rmtree(temp_dir)
+
+
     ### Test if these are orientation-independent
     ### Other analyses
 
