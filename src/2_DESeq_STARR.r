@@ -92,8 +92,18 @@ DESeq_with_ctrl <- function(all, ctrl, outdir, model, num_rep_DNA, num_rep_RNA){
   # resLFC
   
   if (model == "full"){
-    output <- resLFC[which((resLFC[1:length(filter_full),]$padj<0.05) == TRUE),]
-    output <- resLFC[which((resLFC[1:length(filter_full),]$log2FoldChange>=1) == TRUE),]
+    ## first option: LFC>=1 & padj<0.05
+    output <- resLFC[1:length(filter_full), ][resLFC[1:length(filter_full), ]$padj < 0.05 & 
+                                                resLFC[1:length(filter_full), ]$log2FoldChange >= 1, ]
+    ## second option: z-score > 1.64 - 95th percentile for a one-sided Gaussian distribution
+    # mean_neg_ctrl <- mean(resLFC[length(filter_full)+1:length(controlgene),]$log2FoldChange)
+    # 
+    # std_neg_ctrl = sd(resLFC[length(filter_full)+1:length(controlgene),]$log2FoldChange)
+    # 
+    # resLFC$"z-score" = (resLFC$log2FoldChange-mean_neg_ctrl)/std_neg_ctrl
+    # logFC_cutoff = 1.64*std_neg_ctrl+mean_neg_ctrl
+    # output <- resLFC[1:length(filter_full), ][resLFC[1:length(filter_full), ]$padj < 0.05 & 
+    #                                             resLFC[1:length(filter_full), ]$log2FoldChange >= logFC_cutoff, ]
   }
   else {
     output <- resLFC[1:length(filter_full),]
