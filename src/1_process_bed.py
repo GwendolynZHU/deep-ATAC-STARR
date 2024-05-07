@@ -4,6 +4,7 @@ Reorganizing my code.
 Sample run: 
 python3 1_process_bed.py --outdir /output_path/EnhancerNet --enh_file /path_to_file/Enhancer_K562_5p+60_boundaries_pause_site_b.bed --design full
 python3 1_process_bed.py --outdir /output_path/EnhancerNet --enh_file /path_to_file/Enhancer_K562_5p_boundaries_pause_site_b.bed --design 5p
+python3 1_process_bed.py --outdir /output_path/new_folder_name --enh_file /path_to_enh_file --design partial
 
 Author: Yutong Zhu
 Date: 2024-04-10
@@ -17,7 +18,7 @@ import pandas as pd
 import tempfile
 import shutil
 from multiprocessing import Pool
-from helpers import write_params, get_reference, grace_period_bins, align, count_mapped_bins, append_file, combine, select_pairs, generate_partial_elements
+from helpers import write_params, get_reference, grace_period_bins, align, count_mapped_bins, append_file, combine, select_pairs, generate_partial_elements, merge_pairs
 
 
 # Create a temporary directory and set pybedtools to use that directory
@@ -121,6 +122,7 @@ def main(args):
             ref_path = args.outdir+"/design_ref/divergent_60bp_without_"+design+".bed"
             ref_file = pybedtools.BedTool(ref_path).to_dataframe(disable_auto_names=True, header=None)
             extract_reads(ref_file, file_source, design, args.outdir)
+            merge_pairs(args.outdir, design)
 
     else: #partial EnhancerNet
         extract_reads(ref_file, file_source, args.design, args.outdir)

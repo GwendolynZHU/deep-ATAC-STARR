@@ -225,24 +225,22 @@ if (!file.exists(paste0(args$output, "/full/srt_full_e.bed"))){
 partial_list <- list()
 for (n in args$name) {
   message(paste0("Calculating activities for ", n))
-  partial_f <- read.table(paste0(args$output,"/", n, "/srt_", n, "_f.bed"))
-  partial_r <- read.table(paste0(args$output,"/", n, "/srt_", n, "_r.bed"))
+  partial <- read.table(paste0(args$output,"/", n, "/srt_", n, ".bed"))
 
-  rownames(partial_f) <- paste0(n, "_f", 1:nrow(partial_f))
-  rownames(partial_r) <- paste0(n, "_r", 1:nrow(partial_r))
+  rownames(partial) <- paste0(n, 1:nrow(partial))
 
-  partial_list[[n]] <-list(forward=partial_f, reverse=partial_r)
+  partial_list[[n]] <- partial
 }
 control_gene <- read.table("/fs/cbsuhy01/storage/yz2676/data/STARR-seq/normalization/srt_deep_ATAC_exon_ctrl.bed")
 rownames(control_gene) <- paste0("ctrl", 1:nrow(control_gene))
 control_gene <- control_gene[, -(4)]
-colnames(control_gene) <- colnames(partial_list[[n]]$forward)
+colnames(control_gene) <- colnames(partial_list[[n]])
 
 # Combine full, partial, control as a single matrix
 full <- read.table(paste0(args$output, "/full/srt_full_e.bed"))
 rownames(full) <- paste0("full", 1:nrow(full))
 
-all <- bind_rows(lapply(partial_list, bind_each_pair))
-all <- bind_rows(full, all, control_gene)
+all <- bind_rows(c(list(full), partial_list, list(control_gene)))
+head(all)
 
 DESeq_with_ctrl(all, control_gene, args$output, substr(n,1,nchar(n)-2), args$num_rep_DNA, args$num_rep_RNA)

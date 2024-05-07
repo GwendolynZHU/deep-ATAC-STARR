@@ -224,6 +224,21 @@ def select_pairs(outdir, design):
     print("Pairwise elements saved.")
 
 
+### func for merging forward/reverse elements
+def merge_pairs(outdir, design):
+    """ 
+    """
+    forward = pybedtools.BedTool(outdir+"/"+design+"/srt_"+design+"_f.bed").to_dataframe(disable_auto_names=True, header=None)
+    reverse = pybedtools.BedTool(outdir+"/"+design+"/srt_"+design+"_r.bed").to_dataframe(disable_auto_names=True, header=None)
+
+    ovl = pd.concat([forward,reverse],ignore_index=True).groupby([0,1,2]).sum().reset_index()
+    print(len(ovl))
+    print(ovl)
+    
+    ovl.to_csv(outdir+"/"+design+"/srt_"+design+".bed", sep='\t', index=False, header=False)
+    print("Forward & reverse reads combined for {}".format(design))
+
+
 ### func for generating partial elements
 def generate_partial_elements(input_file, outdir):
     """
