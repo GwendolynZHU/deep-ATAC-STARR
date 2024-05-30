@@ -59,12 +59,15 @@ def get_reference(path, type, idx):
     """ 
     Return the orientation-separated counts file in a dataframe for respective replicate.
     """
-    if idx in [5,6,7]:
-       df2 = pybedtools.BedTool(path+type+str(idx-4)+"/all/count.bed").to_dataframe(disable_auto_names=True, header=None)
-    elif idx in [1,3]:
-       df2 = pybedtools.BedTool(path+type+str(idx)+"/all/count.bed.gz").to_dataframe(disable_auto_names=True, header=None)
-    else:
-       df2 = pybedtools.BedTool(path+type+"1"+"/all/count.bed").to_dataframe(disable_auto_names=True, header=None)
+    if type == "RNA":
+        if idx in [5,6,7]:
+            df2 = pybedtools.BedTool(path+type+str(idx-4)+"/all/count.bed").to_dataframe(disable_auto_names=True, header=None)
+        elif idx in [1,3]:
+            df2 = pybedtools.BedTool(path+type+str(idx)+"/all/count.bed.gz").to_dataframe(disable_auto_names=True, header=None)
+        else:
+            df2 = pybedtools.BedTool(path+type+"1"+"/all/count.bed").to_dataframe(disable_auto_names=True, header=None)
+    else: # DNA
+        df2 = pybedtools.BedTool(path+type+str(idx)+"/all/count.bed.gz").to_dataframe(disable_auto_names=True, header=None)
 
     f = df2[df2[3] == "+"]
     r = df2[df2[3] == "-"]
@@ -80,13 +83,17 @@ def align(ls):
     """
     input = pybedtools.BedTool.from_dataframe(ls[0]) # forward/reverse counts.bed.gz
     file = pybedtools.BedTool.from_dataframe(ls[1]) # binned reference
+    enh_typ = ls[2] # PINTS or EnhancerNet
+    count_idx = 8 if enh_typ == "PINTS" else 4
     # print(file)
     overlap = file.coverage(input, sorted=True, counts=True, f=1.0, r=True, n=48)
     overlap = overlap.to_dataframe(disable_auto_names=True, header=None)
+    overlap = overlap.rename(columns={count_idx: "overlap"})
+    overlap = overlap[overlap["overlap"]==1].reset_index(drop=True)
     return overlap
 
 
-def count_mapped_bins(UMI, counts, ori_ref, ref, data_type, idx, design, orientation, enh_typ, out_dir):
+def count_mapped_bins(UMI, counts, ori_ref, ref, data_type, idx, design, orientation, out_dir):
     # def count_mapped_bins(UMI, counts, ori_ref, ref): # for test
     """ 
     Need to go to the original orientation separated counts.bed.gz file 
@@ -101,14 +108,8 @@ def count_mapped_bins(UMI, counts, ori_ref, ref, data_type, idx, design, orienta
     Parameter idx: string, 1-6 for DNA, 1-7 for RNA
     Parameter design: string, e.g. TSS_b
     Parameter orientation: string, f or r (forward or reverse)
-    Parameter enh_typ: string, PINTS or EnhancerNet
     Parameter out_dir: string
     """
-    assert enh_typ == "PINTS" or enh_typ == "EnhancerNet", "Please input PINTS or EnhancerNet for the input enhancer file"
-    count_idx = 8 if enh_typ == "PINTS" else 4
-    counts = counts.rename(columns={count_idx: "overlap"})
-    ## subset only overlapped elements from pybedtools.coverage
-    counts = counts[counts["overlap"]==1].reset_index(drop=True)
     ref = ref.rename(columns={4: "count"})
 
     if UMI: # RNA samples
@@ -227,12 +228,13 @@ def select_pairs(outdir, design):
 ### func for merging forward/reverse elements
 def merge_pairs(outdir, design):
     """ 
+    chr, design start, design end
     """
     forward = pybedtools.BedTool(outdir+"/"+design+"/srt_"+design+"_f.bed").to_dataframe(disable_auto_names=True, header=None)
     reverse = pybedtools.BedTool(outdir+"/"+design+"/srt_"+design+"_r.bed").to_dataframe(disable_auto_names=True, header=None)
 
     ovl = pd.concat([forward,reverse],ignore_index=True).groupby([0,1,2]).sum().reset_index()
-    print(len(ovl))
+    
     print(ovl)
     
     ovl.to_csv(outdir+"/"+design+"/srt_"+design+".bed", sep='\t', index=False, header=False)
@@ -250,18 +252,21 @@ def generate_partial_elements(input_file, outdir):
         ("pause_site", "b"): (-15,-15,"pause_site_b"),
         ("pause_site", "p"): (0,-15,"pause_site_p"),
         ("pause_site", "n"): (-15,0,"pause_site_n"),
-        ("tss", "b"): (32,32,"TSS_b"),
-        ("tss", "p"): (0,32,"TSS_p"),
-        ("tss", "n"): (32,0,"TSS_n"),
+        ("TSS", "b"): (32,32,"TSS_b"),
+        ("TSS", "p"): (0,32,"TSS_p"),
+        ("TSS", "n"): (32,0,"TSS_n"),
     }
 
     for (condition, strand) in config.keys():
         start, end, name = config.get((condition, strand))
 
-        partial = full_enh
-        partial["start"] = full_enh["thickStart"] + start
-        partial["end"] = full_enh["thickEnd"] - end
+        partial = full_enh.copy()
+        
+        partial["start"] = full_enh["thickStart"] + start if start != 0 else full_enh["start"]
+        partial["end"] = full_enh["thickEnd"] - end if end != 0 else full_enh["end"]
         partial = partial[partial["end"]-partial["start"]>=40]
+        partial = partial[partial["chrom"] != "chrM"]
+        partial = partial[partial["start"] >= 0]
 
         out_path = outdir + "/design_ref"
         os.makedirs(out_path, exist_ok=True)

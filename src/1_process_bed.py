@@ -49,10 +49,10 @@ def extract_reads(ref_file, file_source, design, dir):
             
             reference = grace_period_bins(ref_file, 5, file_source)
 
-            a_forward, a_reverse = p.map(align, [[forward, reference], [reverse, reference]])
+            a_forward, a_reverse = p.map(align, [[forward, reference, file_source], [reverse, reference, file_source]])
 
-            count_mapped_bins(False, a_forward, ref_file, forward, "DNA", dna_idx, design, "f", file_source, outdir)
-            count_mapped_bins(False, a_reverse, ref_file, reverse, "DNA", dna_idx, design, "r", file_source, outdir)
+            count_mapped_bins(False, a_forward, ref_file, forward, "DNA", dna_idx, design, "f", outdir)
+            count_mapped_bins(False, a_reverse, ref_file, reverse, "DNA", dna_idx, design, "r", outdir)
 
         for rna_idx in rnas:
             print("Starting RNA replicate" + str(rna_idx) + " ... ")
@@ -70,11 +70,11 @@ def extract_reads(ref_file, file_source, design, dir):
                 forward, reverse = get_reference(RNA_path+"corrected_bam_RNA4/", "RNA", rna_idx)
             
             reference = grace_period_bins(ref_file, 5, file_source)
-            a_forward, a_reverse = p.map(align, [[forward, reference], [reverse, reference]])
+            a_forward, a_reverse = p.map(align, [[forward, reference, file_source], [reverse, reference, file_source]])
 
 
-            count_mapped_bins(True, a_forward, ref_file, forward, "RNA", rna_idx, design, "f", file_source, outdir)
-            count_mapped_bins(True, a_reverse, ref_file, reverse, "RNA", rna_idx, design, "r", file_source, outdir)
+            count_mapped_bins(True, a_forward, ref_file, forward, "RNA", rna_idx, design, "f", outdir)
+            count_mapped_bins(True, a_reverse, ref_file, reverse, "RNA", rna_idx, design, "r", outdir)
                 
     ories = ["f", "r"]
     for orie in ories:
@@ -84,7 +84,7 @@ def extract_reads(ref_file, file_source, design, dir):
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Generate enhancer read counts bedfile from STARR-seq counts.bed file')
-    parser.add_argument('--outdir', required=True, help="Output directory")
+    parser.add_argument("-o", '--outdir', required=True, help="Output directory")
     parser.add_argument('--enh_file', required=True, help="Path to .bed enhancer file, should be in the format of eight or four required fields. (chr, chromStart, chromEnd, name, score, strand, thickStart, thickEnd).")
     parser.add_argument('--design', required=True, default="full", help="Processing the full or partial element.")
 
