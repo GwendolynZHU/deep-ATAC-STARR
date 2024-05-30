@@ -21,14 +21,14 @@ bind_each_pair <- function(name_data) {
 }
 
 
-DESeq_regular <- function(ctrl, num_rep_DNA, num_rep_RNA, output_file){
+DESeq_regular <- function(ctrl, DNA_rep, RNA_rep, output_file){
   ctrl <- ctrl[which(rowSums(ctrl)>10),]
   
   cts <- ctrl
   rownames(cts) <- rownames(ctrl)
   
   coldata <- data.frame(colnames(cts))
-  coldata$condition <- c(rep("DNA", num_rep_DNA),rep("RNA", num_rep_RNA))
+  coldata$condition <- c(rep("DNA", length(DNA_rep)),rep("RNA", length(RNA_rep)))
   
   rownames(coldata) <- coldata$colnames.cts.
   coldata[,1] <- NULL
@@ -50,8 +50,19 @@ DESeq_regular <- function(ctrl, num_rep_DNA, num_rep_RNA, output_file){
 }
 
 
-DESeq_with_ctrl <- function(all, ctrl, outdir, model, num_rep_DNA, num_rep_RNA){
+DESeq_with_ctrl <- function(all, ctrl, outdir, model, DNA_rep, RNA_rep){
   all <- all[, -(1:3)]
+  ori_DNA_columns <- paste0("DNA_", c(1,2,3,4,5,6))
+  ori_RNA_columns <- paste0("RNA_", c(1,2,3,4,5,6,7))
+  colnames(all) <- c(ori_DNA_columns, ori_RNA_columns)
+  colnames(ctrl) <- c(ori_DNA_columns, ori_RNA_columns)
+  
+
+  ### add in flexibility to allow a subset of replicates
+  DNA_columns <- paste0("DNA_", DNA_rep)
+  RNA_columns <- paste0("RNA_", RNA_rep)
+  all <- select(all, all_of(DNA_columns), all_of(RNA_columns))
+  ctrl <- select(ctrl, all_of(DNA_columns), all_of(RNA_columns))
   filter_full <- all[1:(nrow(all)-nrow(ctrl)),]
   filter_full <- which(rowSums(filter_full)>10)
   all_fil <- all[which(rowSums(all)>10),]
@@ -62,7 +73,7 @@ DESeq_with_ctrl <- function(all, ctrl, outdir, model, num_rep_DNA, num_rep_RNA){
   controlgene = seq(length(filter_full)+1, length=nrow(cts)-length(filter_full))
   
   coldata <- data.frame(colnames(cts))
-  coldata$condition <- c(rep("DNA", num_rep_DNA),rep("RNA", num_rep_RNA))
+  coldata$condition <- c(rep("DNA", length(DNA_rep)),rep("RNA", length(RNA_rep)))
   
   rownames(coldata) <- coldata$colnames.cts.
   coldata[,1] <- NULL
@@ -92,8 +103,8 @@ DESeq_with_ctrl <- function(all, ctrl, outdir, model, num_rep_DNA, num_rep_RNA){
   # resLFC
   
   if (model == "full"){
-    ## first option: LFC>=1 & padj<0.05
-    output <- resLFC[1:length(filter_full), ][resLFC[1:length(filter_full), ]$padj < 0.05 & 
+    ## first option: LFC>=1 & padj<0.1
+    output <- resLFC[1:length(filter_full), ][resLFC[1:length(filter_full), ]$padj < 0.1 & 
                                                 resLFC[1:length(filter_full), ]$log2FoldChange >= 1, ]
     ## second option: z-score > 1.64 - 95th percentile for a one-sided Gaussian distribution
     # mean_neg_ctrl <- mean(resLFC[length(filter_full)+1:length(controlgene),]$log2FoldChange)
@@ -181,8 +192,8 @@ suppressPackageStartupMessages({
 parser <- ArgumentParser()
 
 parser$add_argument("-o", "--output", required=T, help="Output file directory")
-parser$add_argument("--num_rep_DNA", type="integer", default=6, help="number of replicate")
-parser$add_argument("--num_rep_RNA", type="integer", default=7, help="number of replicate")
+parser$add_argument("--DNA_rep", type="integer", nargs="+", default=c(1,2,3,4,5,6), help="number of replicate")
+parser$add_argument("--RNA_rep", type="integer", nargs="+", default=c(1,2,3,4,5,6,7), help="number of replicate")
 parser$add_argument("--name", nargs="+", required=T, help="design of element, e.g. 5p; 3p; TSS_b")
 
 args <- parser$parse_args()
@@ -194,7 +205,7 @@ if (!file.exists("/fs/cbsuhy01/storage/yz2676/data/STARR-seq/normalization/DESeq
   ctrl <- read.table("/fs/cbsuhy01/storage/yz2676/data/STARR-seq/normalization/srt_deep_ATAC_exon_ctrl.bed")
   ctrl <- ctrl[, -(1:4)]
   output_file_path <- "/fs/cbsuhy01/storage/yz2676/data/STARR-seq/normalization/DESeq_result_ctrl.txt"
-  DESeq_regular(ctrl, args$num_rep_DNA, args$num_rep_RNA, output_file_path)
+  DESeq_regular(ctrl, args$DNA_rep, args$RNA_rep, output_file_path)
   message("Negative ctrl results saved.")
 }
 
@@ -215,7 +226,7 @@ if (!file.exists(paste0(args$output, "/full/srt_full_e.bed"))){
   colnames(control_gene) <- colnames(full_f)
   all <- bind_rows(full_f, full_r, control_gene)
 
-  DESeq_with_ctrl(all, control_gene, args$output, "full", args$num_rep_DNA, args$num_rep_RNA)
+  DESeq_with_ctrl(all, control_gene, args$output, "full", args$DNA_rep, args$RNA_rep)
   
   full <- read.table(paste0(args$output, "/DESeq/DE_results_full.txt"))
   save_enhancers(full, args$output, "full")
@@ -241,6 +252,5 @@ full <- read.table(paste0(args$output, "/full/srt_full_e.bed"))
 rownames(full) <- paste0("full", 1:nrow(full))
 
 all <- bind_rows(c(list(full), partial_list, list(control_gene)))
-head(all)
 
-DESeq_with_ctrl(all, control_gene, args$output, substr(n,1,nchar(n)-2), args$num_rep_DNA, args$num_rep_RNA)
+DESeq_with_ctrl(all, control_gene, args$output, substr(n,1,nchar(n)-2), args$DNA_rep, args$RNA_rep)
