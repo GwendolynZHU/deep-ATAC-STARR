@@ -4,6 +4,16 @@
 # /programs/R-4.2.1-r9/bin/Rscript 2_DESeq_STARR.r -o /path_to_file/EnhancerNet --name 5p, 3p
 # /programs/R-4.2.1-r9/bin/Rscript 2_DESeq_STARR.r -o /path_to_file/new_data --name TSS_b TSS_p TSS_n
 
+write_params <- function(args, file) {
+  conn <- file(file, "w")
+  on.exit(close(conn))
+  
+  lapply(names(args), function(arg) {
+    write(paste(arg, args[[arg]]), conn)
+  })
+}
+
+
 def_colnames <- function(dataframe, name, suffixes){
   base_suffixes <- c("chr","start","end")
   dynamic_names <- sapply(suffixes, function(suffix) paste0(name, "_", suffix))
@@ -50,7 +60,7 @@ DESeq_regular <- function(ctrl, DNA_rep, RNA_rep, output_file){
 }
 
 
-DESeq_with_ctrl <- function(all, ctrl, outdir, model, DNA_rep, RNA_rep){
+DESeq_with_ctrl <- function(all, ctrl, outdir, model, DNA_rep, RNA_rep, cutoff){
   all <- all[, -(1:3)]
   ori_DNA_columns <- paste0("DNA_", c(1,2,3,4,5,6))
   ori_RNA_columns <- paste0("RNA_", c(1,2,3,4,5,6,7))
@@ -64,8 +74,8 @@ DESeq_with_ctrl <- function(all, ctrl, outdir, model, DNA_rep, RNA_rep){
   all <- select(all, all_of(DNA_columns), all_of(RNA_columns))
   ctrl <- select(ctrl, all_of(DNA_columns), all_of(RNA_columns))
   filter_full <- all[1:(nrow(all)-nrow(ctrl)),]
-  filter_full <- which(rowSums(filter_full)>10)
-  all_fil <- all[which(rowSums(all)>10),]
+  filter_full <- which(rowSums(filter_full)>cutoff)
+  all_fil <- all[which(rowSums(all)>cutoff),]
   rm(all)
   
   cts <- all_fil
@@ -90,7 +100,7 @@ DESeq_with_ctrl <- function(all, ctrl, outdir, model, DNA_rep, RNA_rep){
                                 design = ~ condition)
   # dds
   
-  keep <- rowSums(counts(dds)) >= 10
+  keep <- rowSums(counts(dds)) >= cutoff
   dds <- dds[keep,]
   
   dds <- estimateSizeFactors(dds, controlGenes=controlgene)#, type="poscounts")
@@ -168,7 +178,7 @@ save_enhancers <- function(deseq, outdir, design) {
   result_values <- filtered_rows_f[,4:ncol(filtered_rows_f)] + filtered_rows_r[,4:ncol(filtered_rows_r)]
   result <- cbind(filtered_rows_f[,1:3], result_values)
   
-  write.table(result, file=paste0(outdir, "/",design,"/srt_",design,"_e.bed"),
+  write.table(result, file=paste0(outdir, "/data/",design,"/srt_",design,"_e.bed"),
               append = FALSE, sep = "\t",
               row.names = FALSE, col.names = FALSE, quote = FALSE)
 
@@ -194,11 +204,15 @@ parser <- ArgumentParser()
 parser$add_argument("-o", "--output", required=T, help="Output file directory")
 parser$add_argument("--DNA_rep", type="integer", nargs="+", default=c(1,2,3,4,5,6), help="number of replicate")
 parser$add_argument("--RNA_rep", type="integer", nargs="+", default=c(1,2,3,4,5,6,7), help="number of replicate")
+parser$add_argument("-c", "--cutoff", type="integer", default=10)
 parser$add_argument("--name", nargs="+", required=T, help="design of element, e.g. 5p; 3p; TSS_b")
 
 args <- parser$parse_args()
 
 ################################################################################
+# Save parameters:
+write_params(args, paste0(args$output, "/DESeq/params.txt"))
+
 # Validate that the negative ctrl is normally distributed
 if (!file.exists("/fs/cbsuhy01/storage/yz2676/data/STARR-seq/normalization/DESeq_result_ctrl.txt")){
   message("Testing negative controls ... ")
@@ -211,10 +225,10 @@ if (!file.exists("/fs/cbsuhy01/storage/yz2676/data/STARR-seq/normalization/DESeq
 
 
 # Output full enhancer elements with orientation-independence
-if (!file.exists(paste0(args$output, "/full/srt_full_e.bed"))){
+if (!file.exists(paste0(args$output, "/data/full/srt_full_e.bed"))){
   message("Started searching for enhancers ... ")
-  full_f <- read.table(paste0(args$output,"/full/srt_full_f.bed"))
-  full_r <- read.table(paste0(args$output,"/full/srt_full_r.bed"))
+  full_f <- read.table(paste0(args$output,"/data/full/srt_full_f.bed"))
+  full_r <- read.table(paste0(args$output,"/data/full/srt_full_r.bed"))
 
   ### read in control gene set
   control_gene <- read.table("/fs/cbsuhy01/storage/yz2676/data/STARR-seq/normalization/srt_deep_ATAC_exon_ctrl.bed")
@@ -226,7 +240,7 @@ if (!file.exists(paste0(args$output, "/full/srt_full_e.bed"))){
   colnames(control_gene) <- colnames(full_f)
   all <- bind_rows(full_f, full_r, control_gene)
 
-  DESeq_with_ctrl(all, control_gene, args$output, "full", args$DNA_rep, args$RNA_rep)
+  DESeq_with_ctrl(all, control_gene, args$output, "full", args$DNA_rep, args$RNA_rep, args$cutoff)
   
   full <- read.table(paste0(args$output, "/DESeq/DE_results_full.txt"))
   save_enhancers(full, args$output, "full")
@@ -236,7 +250,7 @@ if (!file.exists(paste0(args$output, "/full/srt_full_e.bed"))){
 partial_list <- list()
 for (n in args$name) {
   message(paste0("Calculating activities for ", n))
-  partial <- read.table(paste0(args$output,"/", n, "/srt_", n, ".bed"))
+  partial <- read.table(paste0(args$output,"/data/", n, "/srt_", n, ".bed"))
 
   rownames(partial) <- paste0(n, 1:nrow(partial))
 
@@ -248,9 +262,9 @@ control_gene <- control_gene[, -(4)]
 colnames(control_gene) <- colnames(partial_list[[n]])
 
 # Combine full, partial, control as a single matrix
-full <- read.table(paste0(args$output, "/full/srt_full_e.bed"))
+full <- read.table(paste0(args$output, "/data/full/srt_full_e.bed"))
 rownames(full) <- paste0("full", 1:nrow(full))
 
 all <- bind_rows(c(list(full), partial_list, list(control_gene)))
 
-DESeq_with_ctrl(all, control_gene, args$output, substr(n,1,nchar(n)-2), args$DNA_rep, args$RNA_rep)
+DESeq_with_ctrl(all, control_gene, args$output, substr(n,1,nchar(n)-2), args$DNA_rep, args$RNA_rep, args$cutoff)
