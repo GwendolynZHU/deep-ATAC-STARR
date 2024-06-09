@@ -149,10 +149,10 @@ def append_file(out_dir, design, orie, dnas, rnas):
     RNA_files = []
 
     for idx in dnas:
-        outdir = ("{0}/"+design+"/DNA/DNA{1}").format(out_dir, idx)
+        outdir = ("{0}/data/"+design+"/DNA/DNA{1}").format(out_dir, idx)
         DNA_files.append(outdir+"/DNA"+str(idx)+"_"+orie+"_"+design+".bed")
     for idx in rnas:
-        outdir = ("{0}/"+design+"/RNA/RNA{1}").format(out_dir, idx)
+        outdir = ("{0}/data/"+design+"/RNA/RNA{1}").format(out_dir, idx)
         RNA_files.append(outdir+"/RNA"+str(idx)+"_"+orie+"_"+design+".bed")
 
     ls = DNA_files + RNA_files
@@ -198,8 +198,8 @@ def combine(input_list, outdir, design, orie):
 
     output_df = output_12[output_12[0] != "chrN"]
     # print(output_12)
-    unsrt_path = outdir+"/"+design+"/"+design+"_"+orie+".bed"
-    srt_path = outdir+"/"+design+"/srt_"+design+"_"+orie+".bed"
+    unsrt_path = outdir+"/data/"+design+"/"+design+"_"+orie+".bed"
+    srt_path = outdir+"/data/"+design+"/srt_"+design+"_"+orie+".bed"
     output_df.to_csv(unsrt_path, sep='\t', index=False, header=False)
     safe_sort(unsrt_path, srt_path)
     cmds = ["rm " + unsrt_path]
@@ -220,8 +220,8 @@ def select_pairs(outdir, design):
     rv = overlap.iloc[:,list(range(0, 3)) + list(range(16, 29))]
     # print(rv)
     # print("full: ", len(overlap))
-    fd.to_csv(outdir+"/"+design+"/srt_"+design+"_f.bed", sep='\t', index=False, header=False)
-    rv.to_csv(outdir+"/"+design+"/srt_"+design+"_r.bed", sep='\t', index=False, header=False)
+    fd.to_csv(outdir+"/data/"+design+"/srt_"+design+"_f.bed", sep='\t', index=False, header=False)
+    rv.to_csv(outdir+"/data/"+design+"/srt_"+design+"_r.bed", sep='\t', index=False, header=False)
     print("Pairwise elements saved.")
 
 
@@ -230,14 +230,14 @@ def merge_pairs(outdir, design):
     """ 
     chr, design start, design end
     """
-    forward = pybedtools.BedTool(outdir+"/"+design+"/srt_"+design+"_f.bed").to_dataframe(disable_auto_names=True, header=None)
-    reverse = pybedtools.BedTool(outdir+"/"+design+"/srt_"+design+"_r.bed").to_dataframe(disable_auto_names=True, header=None)
+    forward = pybedtools.BedTool(outdir+"/data/"+design+"/srt_"+design+"_f.bed").to_dataframe(disable_auto_names=True, header=None)
+    reverse = pybedtools.BedTool(outdir+"/data/"+design+"/srt_"+design+"_r.bed").to_dataframe(disable_auto_names=True, header=None)
 
     ovl = pd.concat([forward,reverse],ignore_index=True).groupby([0,1,2]).sum().reset_index()
     
     print(ovl)
     
-    ovl.to_csv(outdir+"/"+design+"/srt_"+design+".bed", sep='\t', index=False, header=False)
+    ovl.to_csv(outdir+"/data/"+design+"/srt_"+design+".bed", sep='\t', index=False, header=False)
     print("Forward & reverse reads combined for {}".format(design))
 
 
@@ -255,6 +255,9 @@ def generate_partial_elements(input_file, outdir):
         ("TSS", "b"): (32,32,"TSS_b"),
         ("TSS", "p"): (0,32,"TSS_p"),
         ("TSS", "n"): (32,0,"TSS_n"),
+        ("INR", "b"): (1,1,"INR_b"),
+        ("INR", "p"): (0,1,"INR_p"),
+        ("INR", "n"): (1,0,"INR_n")
     }
 
     for (condition, strand) in config.keys():

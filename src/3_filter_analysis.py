@@ -24,6 +24,9 @@ def map_partial_to_full_coordinates(outdir, design, full_ref, full_enh):
         ("TSS", "b"): (32,32,"TSS_b"),
         ("TSS", "p"): (0,32,"TSS_p"),
         ("TSS", "n"): (32,0,"TSS_n"),
+        ("INR", "b"): (1,1,"INR_b"),
+        ("INR", "p"): (0,1,"INR_p"),
+        ("INR", "n"): (1,0,"INR_n"),
     }
 
     output = pd.DataFrame()
@@ -72,13 +75,14 @@ def main(args):
     ### Filter out enhancers overlapping with other enhancers
     ### Filter out elements with GROcap-reads less than 5
     ref = pybedtools.BedTool(args.enh_file) ## info: chr, +60bp srt & end, TSS srt & end
-    tss = pybedtools.BedTool("/fs/cbsuhy01/storage/yz2676/ref/gencode/gencode.v37.annotation.1kb.TSS.sorted.bed.gz")
-    # junke_tss = pybedtools.BedTool("/fs/cbsuhy01/storage/jz855/Reference/hg38/proximal_v45/promoter_1kbp_protein_coding_TSS_centered_gencode_v45.bed")
+    # tss = pybedtools.BedTool("/fs/cbsuhy01/storage/yz2676/ref/gencode/gencode.v37.annotation.1kb.TSS.sorted.bed.gz")
+    junke_tss = pybedtools.BedTool("/fs/cbsuhy01/storage/jz855/Reference/hg38/proximal_v45/promoter_1kbp_protein_coding_TSS_centered_gencode_v45.bed")
 
     ### step 1: filter out proximal enhancers and save only those partial that have a corresponding full element
-    full = pybedtools.BedTool(os.path.join(args.outdir, "full", "srt_full_e.bed"))
-    overlap = full.coverage(tss, counts=True, F=0.9).to_dataframe(disable_auto_names=True, header=None)
+    full = pybedtools.BedTool(os.path.join(args.outdir, "data", "full", "srt_full_e.bed"))
+    overlap = full.coverage(junke_tss, counts=True, f=0.9).to_dataframe(disable_auto_names=True, header=None)
     overlap["index"] = "full"+(overlap.index+1).astype(str)
+    # print(overlap)
     overlap = overlap[overlap[16]==0].loc[:,[0,1,2,"index"]] ## indexes are the DESeq ids to save, info: chr, +60bp start and end
     overlap = pybedtools.BedTool.from_dataframe(overlap)
     
@@ -91,14 +95,13 @@ def main(args):
     
 
     ref = ref.to_dataframe()
-    overlap = overlap.to_dataframe(disable_auto_names=True, header=None)
     ### select those partial elements that have corresponding full elements
     for design in args.design:
         deseq_file = pd.read_csv(os.path.join(args.outdir, "DESeq", "DE_results_"+design+".txt"), sep="\t", index_col=0)
         ## transform all tss_p coordinates -> tss coordinates in ref -> +60 coordinates in ref -> merge those exist in overlap -> for all designs
         ## merge the output from last step with deseq-file -> add in design (tss_b), coordinates (for visualization)
-        overlap.rename(columns={0:"chrom", 1:"start", 2:"end", 3:"full_index"},inplace="True")
-        output = map_partial_to_full_coordinates(args.outdir, design, ref, overlap)
+        non_overlap.rename(columns={0:"chrom", 1:"start", 2:"end", 3:"full_index"},inplace="True")
+        output = map_partial_to_full_coordinates(args.outdir, design, ref, non_overlap)
         # print(output)
         deseq_index = set(deseq_file.index.to_list())
         index_dict = list((set(output["partial_index"]) | set(output["full_index"])) & deseq_index)
@@ -114,6 +117,9 @@ def main(args):
             deseq_merged_partial['partial_index'].str.startswith('pause_site_b'),
             deseq_merged_partial['partial_index'].str.startswith('pause_site_p'),
             deseq_merged_partial['partial_index'].str.startswith('pause_site_n'),
+            deseq_merged_partial['partial_index'].str.startswith('INR_b'),
+            deseq_merged_partial['partial_index'].str.startswith('INR_p'),
+            deseq_merged_partial['partial_index'].str.startswith('INR_n'),
         ]
 
         coordinates_start_transform = [ # add in design coordinates for visualization
@@ -123,6 +129,9 @@ def main(args):
             deseq_merged_partial['thickStart'] - 15,
             deseq_merged_partial['start'],
             deseq_merged_partial['thickStart'] - 15,
+            deseq_merged_partial['thickStart'] + 1,
+            deseq_merged_partial['start'],
+            deseq_merged_partial['thickStart'] + 1,
         ]
 
         coordinates_end_transform = [
@@ -131,6 +140,9 @@ def main(args):
             deseq_merged_partial['end'],
             deseq_merged_partial['thickEnd'] + 15,
             deseq_merged_partial['thickEnd'] + 15,
+            deseq_merged_partial['end'],
+            deseq_merged_partial['thickEnd'] - 1,
+            deseq_merged_partial['thickEnd'] - 1,
             deseq_merged_partial['end'],
         ]
 

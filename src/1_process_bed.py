@@ -43,7 +43,7 @@ def extract_reads(ref_file, file_source, design, dir):
         references = p.starmap(get_reference, get_reference_args)
         for dna_idx, (forward, reverse) in zip(dnas, references):
             print("Starting DNA replicate" + str(dna_idx) + " ... ")
-            outdir = ("{0}/"+design+"/DNA/DNA{1}").format(dir, dna_idx)
+            outdir = ("{0}/data/"+design+"/DNA/DNA{1}").format(dir, dna_idx)
             command = "mkdir -p " + outdir
             _ = subprocess.getoutput(command)
             
@@ -56,7 +56,7 @@ def extract_reads(ref_file, file_source, design, dir):
 
         for rna_idx in rnas:
             print("Starting RNA replicate" + str(rna_idx) + " ... ")
-            outdir = ("{0}/"+design+"/RNA/RNA{1}").format(dir, rna_idx)
+            outdir = ("{0}/data/"+design+"/RNA/RNA{1}").format(dir, rna_idx)
             command = "mkdir -p " + outdir
             _ = subprocess.getoutput(command)
 
@@ -95,7 +95,7 @@ def main(args):
     os.makedirs(args.outdir, exist_ok=True)
 
     ### Write params file
-    write_params(args, os.path.join(args.outdir, "params.txt"))
+    write_params(args, os.path.join(args.outdir, args.design+"_params.txt"))
 
     ### Grep enhancer reads - map full enhancers
     ref_file = pybedtools.BedTool(args.enh_file).to_dataframe(disable_auto_names=True, header=None)
@@ -116,7 +116,7 @@ def main(args):
     elif file_source == "PINTS": #partial
         ### func to generate partial deletions - save that to outdir/design_ref
         generate_partial_elements(args.enh_file, args.outdir)
-        designs = ["pause_site_b", "pause_site_n", "pause_site_p", "TSS_b", "TSS_n", "TSS_p"]
+        designs = ["pause_site_b", "pause_site_n", "pause_site_p", "TSS_b", "TSS_n", "TSS_p", "INR_b", "INR_p", "INR_n"]
         
         for design in designs:
             ref_path = args.outdir+"/design_ref/divergent_60bp_without_"+design+".bed"
