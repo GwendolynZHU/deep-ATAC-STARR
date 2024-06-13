@@ -60,7 +60,7 @@ DESeq_regular <- function(ctrl, DNA_rep, RNA_rep, output_file){
 }
 
 
-DESeq_with_ctrl <- function(all, ctrl, outdir, model, DNA_rep, RNA_rep, cutoff){
+DESeq_with_ctrl <- function(all, ctrl, outdir, model, DNA_rep, RNA_rep, cutoff, cpm_filter){
   all <- all[, -(1:3)]
   ori_DNA_columns <- paste0("DNA_", c(1,2,3,4,5,6))
   ori_RNA_columns <- paste0("RNA_", c(1,2,3,4,5,6,7))
@@ -73,14 +73,10 @@ DESeq_with_ctrl <- function(all, ctrl, outdir, model, DNA_rep, RNA_rep, cutoff){
   RNA_columns <- paste0("RNA_", RNA_rep)
   all <- select(all, all_of(DNA_columns), all_of(RNA_columns))
   ctrl <- select(ctrl, all_of(DNA_columns), all_of(RNA_columns))
-  filter_full <- all[1:(nrow(all)-nrow(ctrl)),]
-  filter_full <- which(rowSums(filter_full)>cutoff)
-  all_fil <- all[which(rowSums(all)>cutoff),]
-  rm(all)
+  full <- all[1:(nrow(all)-nrow(ctrl)),]
   
-  cts <- all_fil
-  rownames(cts) <- rownames(all_fil)
-  controlgene = seq(length(filter_full)+1, length=nrow(cts)-length(filter_full))
+  cts <- all
+  rownames(cts) <- rownames(all)
   
   coldata <- data.frame(colnames(cts))
   coldata$condition <- c(rep("DNA", length(DNA_rep)),rep("RNA", length(RNA_rep)))
@@ -99,23 +95,47 @@ DESeq_with_ctrl <- function(all, ctrl, outdir, model, DNA_rep, RNA_rep, cutoff){
                                 colData = coldata,
                                 design = ~ condition)
   # dds
+
+  if (cpm_filter) { # at least 4 DNA libs >= cpm cutoff
+    cpm = cpm(counts(dds), log=FALSE)
+    lib_size = mean(colSums(counts(dds))[1:length(DNA_rep)])
+    message(paste("mean_lib_size", lib_size))
+    cpm_cutoff = cutoff/(lib_size/10^6)
+    message(paste("CPM_filter_cutoff", cpm_cutoff))
+    if(length(DNA_rep) == 1){
+        keep = cpm[, DNA_columns] >= cpm_cutoff
+    } else {
+        keep = rowSums(cpm[, DNA_columns] >= cpm_cutoff) >= 4
+    }
+  } else { #raw counts filter
+    keep <- rowSums(counts(dds)) >= cutoff
+  }
   
-  keep <- rowSums(counts(dds)) >= cutoff
-  dds <- dds[keep,]
+  dds_filtered <- dds[keep,]
+  control_genes <- rownames(dds_filtered) %in% rownames(ctrl)
+  control_indexes <- which(control_genes)
+
+  filtered_full <- rownames(dds_filtered) %in% rownames(full)
+  filtered_full_indexes <- length(which(filtered_full))
+
+  dds_filtered <- estimateSizeFactors(dds_filtered, controlGenes=control_indexes)#, type="poscounts")
+  dds_filtered <- estimateDispersions(dds_filtered)
+  dds_filtered <- nbinomWaldTest(dds_filtered)
+
+  png(filename = paste0(outdir,"/DESeq/plots/", model, "_", cutoff, "_dispersion_plot.png"))
+  plotDispEsts(dds_filtered)
+  dev.off()
+
+#   resultsNames(dds_filtered)
+  res <- results(dds_filtered, contrast=c("condition", "RNA", "DNA"))
   
-  dds <- estimateSizeFactors(dds, controlGenes=controlgene)#, type="poscounts")
-  dds <- estimateDispersions(dds)
-  dds <- nbinomWaldTest(dds)
-  resultsNames(dds)
-  res <- results(dds, contrast=c("condition", "RNA", "DNA"))
-  
-  resLFC <- lfcShrink(dds, coef="condition_RNA_vs_DNA", type="apeglm")
+  resLFC <- lfcShrink(dds_filtered, coef="condition_RNA_vs_DNA", type="apeglm")
   # resLFC
   
   if (model == "full"){
     ## first option: LFC>=1 & padj<0.1
-    output <- resLFC[1:length(filter_full), ][resLFC[1:length(filter_full), ]$padj < 0.1 & 
-                                                resLFC[1:length(filter_full), ]$log2FoldChange >= 1, ]
+    output <- resLFC[1:filtered_full_indexes, ][resLFC[1:filtered_full_indexes, ]$padj < 0.1 & 
+                                                resLFC[1:filtered_full_indexes, ]$log2FoldChange >= 1, ]
     ## second option: z-score > 1.64 - 95th percentile for a one-sided Gaussian distribution
     # mean_neg_ctrl <- mean(resLFC[length(filter_full)+1:length(controlgene),]$log2FoldChange)
     # 
@@ -127,7 +147,7 @@ DESeq_with_ctrl <- function(all, ctrl, outdir, model, DNA_rep, RNA_rep, cutoff){
     #                                             resLFC[1:length(filter_full), ]$log2FoldChange >= logFC_cutoff, ]
   }
   else {
-    output <- resLFC[1:length(filter_full),]
+    output <- resLFC[1:filtered_full_indexes,]
   }
   # print(output)
   
@@ -159,8 +179,8 @@ save_enhancers <- function(deseq, outdir, design) {
   # print(common)
   
   ### need to find the original element
-  ori_f <- read.table(paste0(outdir, "/", design, "/srt_", design, "_f.bed"))
-  ori_r <- read.table(paste0(outdir, "/", design, "/srt_", design, "_r.bed"))
+  ori_f <- read.table(paste0(outdir, "/data/", design, "/srt_", design, "_f.bed"))
+  ori_r <- read.table(paste0(outdir, "/data/", design, "/srt_", design, "_r.bed"))
   
   rownames(ori_f) <- paste0(design, "_f", 1:nrow(ori_f))
   rownames(ori_r) <- paste0(design, "_r", 1:nrow(ori_r))
@@ -196,6 +216,7 @@ suppressPackageStartupMessages({
   library(argparse)
   library(DESeq2)
   library(dplyr)
+  library(edgeR)
 });
 
 # create parser object and add parser arguments
@@ -205,6 +226,7 @@ parser$add_argument("-o", "--output", required=T, help="Output file directory")
 parser$add_argument("--DNA_rep", type="integer", nargs="+", default=c(1,2,3,4,5,6), help="number of replicate")
 parser$add_argument("--RNA_rep", type="integer", nargs="+", default=c(1,2,3,4,5,6,7), help="number of replicate")
 parser$add_argument("-c", "--cutoff", type="integer", default=10)
+parser$add_argument("--cpm_filter", type="logical", default=FALSE)
 parser$add_argument("--name", nargs="+", required=T, help="design of element, e.g. 5p; 3p; TSS_b")
 
 args <- parser$parse_args()
@@ -240,10 +262,10 @@ if (!file.exists(paste0(args$output, "/data/full/srt_full_e.bed"))){
   colnames(control_gene) <- colnames(full_f)
   all <- bind_rows(full_f, full_r, control_gene)
 
-  DESeq_with_ctrl(all, control_gene, args$output, "full", args$DNA_rep, args$RNA_rep, args$cutoff)
+  DESeq_with_ctrl(all, control_gene, args$output, "full", args$DNA_rep, args$RNA_rep, args$cutoff, args$cpm_filter)
   
   full <- read.table(paste0(args$output, "/DESeq/DE_results_full.txt"))
-  save_enhancers(full, args$output, "full")
+#   save_enhancers(full, args$output, "full")
 }
 
 # Also calculate activities for partial elements
@@ -267,4 +289,4 @@ rownames(full) <- paste0("full", 1:nrow(full))
 
 all <- bind_rows(c(list(full), partial_list, list(control_gene)))
 
-DESeq_with_ctrl(all, control_gene, args$output, substr(n,1,nchar(n)-2), args$DNA_rep, args$RNA_rep, args$cutoff)
+DESeq_with_ctrl(all, control_gene, args$output, substr(n,1,nchar(n)-2), args$DNA_rep, args$RNA_rep, args$cutoff, args$cpm_filter)
