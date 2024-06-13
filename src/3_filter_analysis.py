@@ -11,11 +11,12 @@ import pandas as pd
 import numpy as np
 import argparse
 import pybedtools
+from helpers import count_reads_from_bigwig
 
 
 def map_partial_to_full_coordinates(outdir, design, full_ref, full_enh):
     """ 
-    design: one of (pause_site, TSS)
+    design: one of (pause_site, TSS, INR)
     """
     config = {
         ("pause_site", "b"): (-15,-15,"pause_site_b"),
@@ -33,7 +34,7 @@ def map_partial_to_full_coordinates(outdir, design, full_ref, full_enh):
     for (condition, strand) in config.keys():
         if condition == design:
             start, end, name = config.get((condition, strand))
-            partial = pybedtools.BedTool(os.path.join(outdir, design+"_"+strand, "srt_"+design+"_"+strand+".bed")).to_dataframe(disable_auto_names=True, header=None)[[0,1,2]]
+            partial = pybedtools.BedTool(os.path.join(outdir, "data", design+"_"+strand, "srt_"+design+"_"+strand+".bed")).to_dataframe(disable_auto_names=True, header=None)[[0,1,2]]
             partial[[1]] = partial[[1]] - start ## to merge with TSS from full_ref
             partial[[2]] = partial[[2]] + end
             partial.rename(columns={0:"chrom", 1:"thickStart", 2:"thickEnd"}, inplace=True)
@@ -91,7 +92,9 @@ def main(args):
     non_overlap = non_overlap[non_overlap[4] == 1].loc[:,[0,1,2,3]]
     # print(non_overlap)
 
-    ### step 3: make sure full enhancers are actually enhancers -> browser shots manually check + filter out GROcap-reads less than 5
+    ### step 3: make sure full enhancers are actually enhancers -> browser shots manually check 
+    bw1_file_path = "/fs/cbsuhy01/storage/jz855/Reference/K562/GRO_cap/K562_GROcap_hg38_aligned_pl.bw"
+    bw2_file_path = "/fs/cbsuhy01/storage/jz855/Reference/K562/GRO_cap/K562_GROcap_hg38_aligned_mn.bw"
     
 
     ref = ref.to_dataframe()
@@ -110,46 +113,37 @@ def main(args):
         deseq_merged_partial = deseq_available.merge(output, left_index=True, right_on="partial_index", how="left").dropna().reset_index(drop=True)
         deseq_merged_partial = deseq_merged_partial.loc[:,["log2FoldChange", "pvalue", "padj", "chrom", "start", "end", "thickStart", "thickEnd", "partial_index", "full_index"]]
         
-        conditions = [
-            deseq_merged_partial['partial_index'].str.startswith('TSS_b'),
-            deseq_merged_partial['partial_index'].str.startswith('TSS_p'),
-            deseq_merged_partial['partial_index'].str.startswith('TSS_n'),
-            deseq_merged_partial['partial_index'].str.startswith('pause_site_b'),
-            deseq_merged_partial['partial_index'].str.startswith('pause_site_p'),
-            deseq_merged_partial['partial_index'].str.startswith('pause_site_n'),
-            deseq_merged_partial['partial_index'].str.startswith('INR_b'),
-            deseq_merged_partial['partial_index'].str.startswith('INR_p'),
-            deseq_merged_partial['partial_index'].str.startswith('INR_n'),
-        ]
+        condition_mapping = {
+            'TSS_b': (deseq_merged_partial['thickStart'] + 32, deseq_merged_partial['thickEnd'] - 32),
+            'TSS_p': (deseq_merged_partial['start'], deseq_merged_partial['thickEnd'] - 32),
+            'TSS_n': (deseq_merged_partial['thickStart'] + 32, deseq_merged_partial['end']),
+            'pause_site_b': (deseq_merged_partial['thickStart'] - 15, deseq_merged_partial['thickEnd'] + 15),
+            'pause_site_p': (deseq_merged_partial['start'], deseq_merged_partial['thickEnd'] + 15),
+            'pause_site_n': (deseq_merged_partial['thickStart'] - 15, deseq_merged_partial['end']),
+            'INR_b': (deseq_merged_partial['thickStart'] + 1, deseq_merged_partial['thickEnd'] - 1),
+            'INR_p': (deseq_merged_partial['start'], deseq_merged_partial['thickEnd'] - 1),
+            'INR_n': (deseq_merged_partial['thickStart'] + 1, deseq_merged_partial['end'])
+        }
 
-        coordinates_start_transform = [ # add in design coordinates for visualization
-            deseq_merged_partial['thickStart'] + 32,
-            deseq_merged_partial['start'],
-            deseq_merged_partial['thickStart'] + 32,
-            deseq_merged_partial['thickStart'] - 15,
-            deseq_merged_partial['start'],
-            deseq_merged_partial['thickStart'] - 15,
-            deseq_merged_partial['thickStart'] + 1,
-            deseq_merged_partial['start'],
-            deseq_merged_partial['thickStart'] + 1,
-        ]
+        for prefix, (start_transform, end_transform) in condition_mapping.items():
+            mask = deseq_merged_partial['partial_index'].str.startswith(prefix)
+            deseq_merged_partial.loc[mask, "designStart"] = start_transform[mask]
+            deseq_merged_partial.loc[mask, "designEnd"] = end_transform[mask]
 
-        coordinates_end_transform = [
-            deseq_merged_partial['thickEnd'] - 32,
-            deseq_merged_partial['thickEnd'] - 32,
-            deseq_merged_partial['end'],
-            deseq_merged_partial['thickEnd'] + 15,
-            deseq_merged_partial['thickEnd'] + 15,
-            deseq_merged_partial['end'],
-            deseq_merged_partial['thickEnd'] - 1,
-            deseq_merged_partial['thickEnd'] - 1,
-            deseq_merged_partial['end'],
-        ]
-
-        deseq_merged_partial["designStart"] = np.select(conditions, coordinates_start_transform, default=np.nan)
-        deseq_merged_partial["designEnd"] = np.select(conditions, coordinates_end_transform, default=np.nan)
         deseq_merged_partial["orientation"] = deseq_merged_partial["partial_index"].str.split("_").apply(lambda x: x[-1][0])
         # print(deseq_merged_partial)
+        ### check GROcap signal within the peak and define maximum TSS and minimum TSS
+        for ori in ("p", "n"):
+            one_side_deletion_df = deseq_merged_partial[deseq_merged_partial["orientation"]==ori].loc[:, ["chrom", "start", "end"]]
+            forward = count_reads_from_bigwig(bw1_file_path, one_side_deletion_df)
+            reverse = count_reads_from_bigwig(bw2_file_path, one_side_deletion_df)
+            non_exch_partial = forward.merge(reverse, on=["chr", "start", "end"])
+            if ori == "p":
+                non_exch_partial["TSS_group"] = np.where(non_exch_partial["expression_x"]>non_exch_partial["expression_y"], "maxi", "mini")
+            else:
+                non_exch_partial["TSS_group"] = np.where(non_exch_partial["expression_x"]>non_exch_partial["expression_y"], "mini", "maxi")
+                
+            deseq_merged_partial.loc[deseq_merged_partial["orientation"] == ori, "orientation"] = non_exch_partial["TSS_group"].values
 
         deseq_merged_full = deseq_available.merge(output, left_index=True, right_on="full_index", how="left").dropna().drop_duplicates(subset=["log2FoldChange","full_index"]).reset_index(drop=True)
         deseq_merged_full["partial_index"] = "nan"

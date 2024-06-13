@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 import pybedtools
 import os
+import pyBigWig
 from subprocess import check_call, call
 from functools import reduce
 
@@ -278,3 +279,26 @@ def generate_partial_elements(input_file, outdir):
         partial.to_csv(out_file, sep="\t", header=False, index=False)
     
     print("Finished generating partial deletion references.")
+
+
+def count_reads_from_bigwig(bw_file_path, regions):
+    """ 
+    """
+    bw = pyBigWig.open(bw_file_path)
+    if isinstance(regions, pd.DataFrame):
+        enh = regions
+    else:
+        enh = pybedtools.BedTool(regions).to_dataframe(disable_auto_names=True, header=None)
+        
+    results = []
+    for index in range(len(enh)):
+        chr = enh.iloc[index][0]
+        start = enh.iloc[index][1]
+        end = enh.iloc[index][2]
+        sum_expression = abs(np.sum(np.nan_to_num(bw.values(chr, int(start), int(end)))))
+        results.append({"chr": chr, "start": start, "end": end, "expression": sum_expression})
+        # print(f"Total expression in {chr}:{start}-{end} is {sum_expression}")
+
+    output = pd.DataFrame(results)
+    bw.close()
+    return output
