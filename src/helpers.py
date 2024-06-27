@@ -56,19 +56,22 @@ def grace_period_bins(file, gSize, enh_typ):
     return new_df.sort_values(by=[0, 1, 2])
 
 
-def get_reference(path, type, idx):
+def get_reference(path, type, idx, starr):
     """ 
     Return the orientation-separated counts file in a dataframe for respective replicate.
     """
-    if type == "RNA":
-        if idx in [5,6,7]:
-            df2 = pybedtools.BedTool(path+type+str(idx-4)+"/all/count.bed").to_dataframe(disable_auto_names=True, header=None)
-        elif idx in [1,3]:
+    if starr == "deep_ATAC_STARR":
+        if type == "RNA":
+            if idx in [5,6,7]:
+                df2 = pybedtools.BedTool(path+type+str(idx-4)+"/all/count.bed").to_dataframe(disable_auto_names=True, header=None)
+            elif idx in [1,3]:
+                df2 = pybedtools.BedTool(path+type+str(idx)+"/all/count.bed.gz").to_dataframe(disable_auto_names=True, header=None)
+            else:
+                df2 = pybedtools.BedTool(path+type+"1"+"/all/count.bed").to_dataframe(disable_auto_names=True, header=None)
+        else: # DNA
             df2 = pybedtools.BedTool(path+type+str(idx)+"/all/count.bed.gz").to_dataframe(disable_auto_names=True, header=None)
-        else:
-            df2 = pybedtools.BedTool(path+type+"1"+"/all/count.bed").to_dataframe(disable_auto_names=True, header=None)
-    else: # DNA
-        df2 = pybedtools.BedTool(path+type+str(idx)+"/all/count.bed.gz").to_dataframe(disable_auto_names=True, header=None)
+    elif starr == "WHG_STARR":
+        df2 = pybedtools.BedTool(path+type+str(idx)+"/all/count.bed").to_dataframe(disable_auto_names=True, header=None)
 
     f = df2[df2[3] == "+"]
     r = df2[df2[3] == "-"]
@@ -94,14 +97,14 @@ def align(ls):
     return overlap
 
 
-def count_mapped_bins(UMI, counts, ori_ref, ref, data_type, idx, design, orientation, out_dir):
+def count_mapped_bins(starr, counts, ori_ref, ref, data_type, idx, design, orientation, out_dir):
     # def count_mapped_bins(UMI, counts, ori_ref, ref): # for test
     """ 
     Need to go to the original orientation separated counts.bed.gz file 
     to sum up the overlapped bins read counts if necessary (RNA).
     Sum the reads from fragmented bins.
 
-    Parameter UMI: type boolean; True for RNA, False for DNA
+    Parameter starr: string; deep_ATAC_STARR or WHG_STARR, together with data_type determine UMI - True for RNA, False for DNA (deepATAC)
     Parameter counts: dataframe (aligned fragmented bins counts) from pybedtools.coverage
     Parameter ori_ref: dataframe (elements regions after design)
     Parameter ref: forward/reverse counts.bed.gz file
@@ -113,7 +116,7 @@ def count_mapped_bins(UMI, counts, ori_ref, ref, data_type, idx, design, orienta
     """
     ref = ref.rename(columns={4: "count"})
 
-    if UMI: # RNA samples
+    if starr == "deep_ATAC_STARR" and data_type == "RNA": # RNA samples
         ## replace the reads since the dataset has already been deduplicated with UMI
         ## also merge the fragmented bins through element id
         # counts = counts.merge(ref, on=[0,1,2], how="inner")
@@ -142,7 +145,7 @@ def count_mapped_bins(UMI, counts, ori_ref, ref, data_type, idx, design, orienta
     output.to_csv(out_dir+"/"+data_type+str(idx)+"_"+orientation+"_"+design+".bed", sep='\t', index=False, header=False)
 
 
-def append_file(out_dir, design, orie, dnas, rnas):
+def append_file(out_dir, design, orie, dnas, rnas, starr):
     """ 
     Load the files.
     """
@@ -150,10 +153,10 @@ def append_file(out_dir, design, orie, dnas, rnas):
     RNA_files = []
 
     for idx in dnas:
-        outdir = ("{0}/data/"+design+"/DNA/DNA{1}").format(out_dir, idx)
+        outdir = ("{0}/"+starr+"/"+design+"/DNA/DNA{1}").format(out_dir, idx)
         DNA_files.append(outdir+"/DNA"+str(idx)+"_"+orie+"_"+design+".bed")
     for idx in rnas:
-        outdir = ("{0}/data/"+design+"/RNA/RNA{1}").format(out_dir, idx)
+        outdir = ("{0}/"+starr+"/"+design+"/RNA/RNA{1}").format(out_dir, idx)
         RNA_files.append(outdir+"/RNA"+str(idx)+"_"+orie+"_"+design+".bed")
 
     ls = DNA_files + RNA_files
@@ -179,28 +182,34 @@ def safe_sort(input, output):
 
 
 ### func for combining results from biological repeats + DNA/RNA
-def combine(input_list, outdir, design, orie):
+def combine(input_list, outdir, design, orie, starr):
     """
     Combine the alignment files into a big matrix.
     """
     output_1 = input_list[0].merge(input_list[1], how="outer",left_on=[0,1,2],right_on=[0,1,2], suffixes=('_1', '_2'))
     output_2 = output_1.merge(input_list[2], how="outer",left_on=[0,1,2],right_on=[0,1,2]).rename(columns={3:"3_3"})
     output_3 = output_2.merge(input_list[3], how="outer",left_on=[0,1,2],right_on=[0,1,2]).rename(columns={3:"3_4"})
-    output_4 = output_3.merge(input_list[4], how="outer",left_on=[0,1,2],right_on=[0,1,2]).rename(columns={3:"3_5"})
-    output_5 = output_4.merge(input_list[5], how="outer",left_on=[0,1,2],right_on=[0,1,2]).rename(columns={3:"3_6"})
-    output_6 = output_5.merge(input_list[6], how="outer",left_on=[0,1,2],right_on=[0,1,2]).rename(columns={3:"3_7"})
-    output_7 = output_6.merge(input_list[7], how="outer",left_on=[0,1,2],right_on=[0,1,2]).rename(columns={3:"3_8"})
-    output_8 = output_7.merge(input_list[8], how="outer",left_on=[0,1,2],right_on=[0,1,2]).rename(columns={3:"3_9"})
-    output_9 = output_8.merge(input_list[9], how="outer",left_on=[0,1,2],right_on=[0,1,2]).rename(columns={3:"3_10"})
-    output_10 = output_9.merge(input_list[10], how="outer",left_on=[0,1,2],right_on=[0,1,2]).rename(columns={3:"3_11"})
-    output_11 = output_10.merge(input_list[11], how="outer",left_on=[0,1,2],right_on=[0,1,2]).rename(columns={3:"3_12"})
-    output_12 = output_11.merge(input_list[12], how="outer",left_on=[0,1,2],right_on=[0,1,2]).rename(columns={3:"3_13"})
-    output_12 = output_12.fillna(0)
+    if starr == "deep_ATAC_STARR":
+        output_4 = output_3.merge(input_list[4], how="outer",left_on=[0,1,2],right_on=[0,1,2]).rename(columns={3:"3_5"})
+        output_5 = output_4.merge(input_list[5], how="outer",left_on=[0,1,2],right_on=[0,1,2]).rename(columns={3:"3_6"})
+        output_6 = output_5.merge(input_list[6], how="outer",left_on=[0,1,2],right_on=[0,1,2]).rename(columns={3:"3_7"})
+        output_7 = output_6.merge(input_list[7], how="outer",left_on=[0,1,2],right_on=[0,1,2]).rename(columns={3:"3_8"})
+        output_8 = output_7.merge(input_list[8], how="outer",left_on=[0,1,2],right_on=[0,1,2]).rename(columns={3:"3_9"})
+        output_9 = output_8.merge(input_list[9], how="outer",left_on=[0,1,2],right_on=[0,1,2]).rename(columns={3:"3_10"})
+        output_10 = output_9.merge(input_list[10], how="outer",left_on=[0,1,2],right_on=[0,1,2]).rename(columns={3:"3_11"})
+        output_11 = output_10.merge(input_list[11], how="outer",left_on=[0,1,2],right_on=[0,1,2]).rename(columns={3:"3_12"})
+        output_12 = output_11.merge(input_list[12], how="outer",left_on=[0,1,2],right_on=[0,1,2]).rename(columns={3:"3_13"})
+        output_12 = output_12.fillna(0)
 
-    output_df = output_12[output_12[0] != "chrN"]
+        output_df = output_12[output_12[0] != "chrN"]
+
+    elif starr == "WHG_STARR":
+        output_3 = output_3.fillna(0)
+        output_df = output_3[output_3[0] != "chrN"]
+
     # print(output_12)
-    unsrt_path = outdir+"/data/"+design+"/"+design+"_"+orie+".bed"
-    srt_path = outdir+"/data/"+design+"/srt_"+design+"_"+orie+".bed"
+    unsrt_path = outdir+"/"+starr+"/"+design+"/"+design+"_"+orie+".bed"
+    srt_path = outdir+"/"+starr+"/"+design+"/srt_"+design+"_"+orie+".bed"
     output_df.to_csv(unsrt_path, sep='\t', index=False, header=False)
     safe_sort(unsrt_path, srt_path)
     cmds = ["rm " + unsrt_path]
@@ -210,35 +219,53 @@ def combine(input_list, outdir, design, orie):
 
 
 ### func for subsetting both-orientations available elements
-def select_pairs(outdir, design):
+def select_pairs(outdir, design, starr):
     """ 
     """
-    forward = pybedtools.BedTool(outdir+"/"+design+"/srt_"+design+"_f.bed").to_dataframe(disable_auto_names=True, header=None)
-    reverse = pybedtools.BedTool(outdir+"/"+design+"/srt_"+design+"_r.bed").to_dataframe(disable_auto_names=True, header=None)
+    forward = pybedtools.BedTool(outdir+"/"+starr+"/"+design+"/srt_"+design+"_f.bed").to_dataframe(disable_auto_names=True, header=None)
+    reverse = pybedtools.BedTool(outdir+"/"+starr+"/"+design+"/srt_"+design+"_r.bed").to_dataframe(disable_auto_names=True, header=None)
 
     overlap = pd.merge(forward, reverse, how ='inner', on = [0, 1, 2])
-    fd = overlap.iloc[:,0:16]
-    rv = overlap.iloc[:,list(range(0, 3)) + list(range(16, 29))]
+    if starr == "deep_ATAC_STARR":
+        fd = overlap.iloc[:,0:16]
+        rv = overlap.iloc[:,list(range(0, 3)) + list(range(16, 29))]
+    elif starr == "WHG_STARR":
+        fd = overlap.iloc[:,0:7]
+        rv = overlap.iloc[:,list(range(0, 3)) + list(range(7, 11))]
     # print(rv)
-    # print("full: ", len(overlap))
-    fd.to_csv(outdir+"/data/"+design+"/srt_"+design+"_f.bed", sep='\t', index=False, header=False)
-    rv.to_csv(outdir+"/data/"+design+"/srt_"+design+"_r.bed", sep='\t', index=False, header=False)
+    # print("full: ", len(overlap))cd
+    fd.to_csv(outdir+"/"+starr+"/"+design+"/srt_"+design+"_f.bed", sep='\t', index=False, header=False)
+    rv.to_csv(outdir+"/"+starr+"/"+design+"/srt_"+design+"_r.bed", sep='\t', index=False, header=False)
     print("Pairwise elements saved.")
+
+    set1 = set(tuple(row) for row in forward.loc[:,[0,1,2]].to_numpy())
+    set2 = set(tuple(row) for row in reverse.loc[:,[0,1,2]].to_numpy())
+    unique_to_df1 = set1 - set2
+    unique_to_df2 = set2 - set1
+    unique_to_df1_df = forward[forward[[0,1,2]].apply(tuple, axis=1).isin(unique_to_df1)]
+    unique_to_df2_df = reverse[reverse[[0,1,2]].apply(tuple, axis=1).isin(unique_to_df2)]
+
+    unpaired_dir = outdir+"/"+starr+"/"+design+"/unpaired/"
+    os.makedirs(unpaired_dir, exist_ok=True)
+
+    unique_to_df1_df.to_csv(unpaired_dir+"srt_full_either_f.bed", header=False, index=False, sep="\t")
+    unique_to_df2_df.to_csv(unpaired_dir+"srt_full_either_r.bed", header=False, index=False, sep="\t")
+    print("Either orientation elements saved.")
 
 
 ### func for merging forward/reverse elements
-def merge_pairs(outdir, design):
+def merge_pairs(outdir, design, starr):
     """ 
     chr, design start, design end
     """
-    forward = pybedtools.BedTool(outdir+"/data/"+design+"/srt_"+design+"_f.bed").to_dataframe(disable_auto_names=True, header=None)
-    reverse = pybedtools.BedTool(outdir+"/data/"+design+"/srt_"+design+"_r.bed").to_dataframe(disable_auto_names=True, header=None)
+    forward = pybedtools.BedTool(outdir+"/"+starr+"/"+design+"/srt_"+design+"_f.bed").to_dataframe(disable_auto_names=True, header=None)
+    reverse = pybedtools.BedTool(outdir+"/"+starr+"/"+design+"/srt_"+design+"_r.bed").to_dataframe(disable_auto_names=True, header=None)
 
     ovl = pd.concat([forward,reverse],ignore_index=True).groupby([0,1,2]).sum().reset_index()
     
     print(ovl)
     
-    ovl.to_csv(outdir+"/data/"+design+"/srt_"+design+".bed", sep='\t', index=False, header=False)
+    ovl.to_csv(outdir+"/"+starr+"/"+design+"/srt_"+design+".bed", sep='\t', index=False, header=False)
     print("Forward & reverse reads combined for {}".format(design))
 
 

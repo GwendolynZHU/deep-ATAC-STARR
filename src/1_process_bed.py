@@ -26,24 +26,29 @@ temp_dir = tempfile.mkdtemp()
 pybedtools.helpers.set_tempdir(temp_dir)
 
 
-def extract_reads(ref_file, file_source, design, dir):
+def extract_reads(ref_file, file_source, design, dir, starr):
     """ 
     """
     print("Generating files for " + design + " ... ")
-    DNA_path = "/fs/cbsuhy01/storage/jz855/STARR_seq_dataset/deep_ATAC_STARR/processing_data_v1/out_DNA_no_UMI/"
-    RNA_path = "/fs/cbsuhy01/storage/jz855/STARR_seq_dataset/deep_ATAC_STARR/processing_data_v1/out_RNA_with_UMI/"
-    new_RNA_path = "/fs/cbsuhy01/storage/jz855/STARR_seq_dataset/deep_ATAC_STARR/processing_data_v1/out_RNA_with_UMI_2024_04/"
+    if starr == "deep_ATAC_STARR":
+        DNA_path = "/fs/cbsuhy01/storage/jz855/STARR_seq_dataset/deep_ATAC_STARR/processing_data_v1/out_DNA_no_UMI/"
+        RNA_path = "/fs/cbsuhy01/storage/jz855/STARR_seq_dataset/deep_ATAC_STARR/processing_data_v1/out_RNA_with_UMI/"
+        new_RNA_path = "/fs/cbsuhy01/storage/jz855/STARR_seq_dataset/deep_ATAC_STARR/processing_data_v1/out_RNA_with_UMI_2024_04/"
+        dnas = list(range(1,7))
+        rnas = list(range(1,8))
+    elif starr == "WHG_STARR": 
+        DNA_path = "/fs/cbsuhy01/storage/jz855/STARR_seq_dataset/WHG_STARR_seq_TR/processing_data_v1/out_DNA_no_UMI/"
+        RNA_path = "/fs/cbsuhy01/storage/jz855/STARR_seq_dataset/WHG_STARR_seq_TR/processing_data_v1/out_RNA_no_UMI/"
+        dnas = list(range(1,2))
+        rnas = list(range(1,4))
     
-    dnas = list(range(1,7))
-    rnas = list(range(1,8))
-
-    get_reference_args = [(DNA_path, "DNA", dna_idx) for dna_idx in dnas]
+    get_reference_args = [(DNA_path, "DNA", dna_idx, starr) for dna_idx in dnas]
     
     with Pool(10) as p:
         references = p.starmap(get_reference, get_reference_args)
         for dna_idx, (forward, reverse) in zip(dnas, references):
             print("Starting DNA replicate" + str(dna_idx) + " ... ")
-            outdir = ("{0}/data/"+design+"/DNA/DNA{1}").format(dir, dna_idx)
+            outdir = ("{0}/"+starr+"/"+design+"/DNA/DNA{1}").format(dir, dna_idx)
             command = "mkdir -p " + outdir
             _ = subprocess.getoutput(command)
             
@@ -51,35 +56,38 @@ def extract_reads(ref_file, file_source, design, dir):
 
             a_forward, a_reverse = p.map(align, [[forward, reference, file_source], [reverse, reference, file_source]])
 
-            count_mapped_bins(False, a_forward, ref_file, forward, "DNA", dna_idx, design, "f", outdir)
-            count_mapped_bins(False, a_reverse, ref_file, reverse, "DNA", dna_idx, design, "r", outdir)
+            count_mapped_bins(starr, a_forward, ref_file, forward, "DNA", dna_idx, design, "f", outdir)
+            count_mapped_bins(starr, a_reverse, ref_file, reverse, "DNA", dna_idx, design, "r", outdir)
 
         for rna_idx in rnas:
             print("Starting RNA replicate" + str(rna_idx) + " ... ")
-            outdir = ("{0}/data/"+design+"/RNA/RNA{1}").format(dir, rna_idx)
+            outdir = ("{0}/"+starr+"/"+design+"/RNA/RNA{1}").format(dir, rna_idx)
             command = "mkdir -p " + outdir
             _ = subprocess.getoutput(command)
 
             if rna_idx in [1,3]:
-                forward, reverse = get_reference(RNA_path, "RNA", rna_idx)
+                forward, reverse = get_reference(RNA_path, "RNA", rna_idx, starr)
             elif rna_idx in [5,6,7]:
-                forward, reverse = get_reference(new_RNA_path, "RNA", rna_idx)
+                forward, reverse = get_reference(new_RNA_path, "RNA", rna_idx, starr)
             elif rna_idx == 2:
-                forward, reverse = get_reference(RNA_path+"corrected_bam/", "RNA", rna_idx)
+                if starr == "WHG_STARR":
+                    forward, reverse = get_reference(RNA_path, "RNA", rna_idx, starr)
+                elif starr == "deep_ATAC_STARR":
+                    forward, reverse = get_reference(RNA_path+"corrected_bam/", "RNA", rna_idx, starr)
             else:
-                forward, reverse = get_reference(RNA_path+"corrected_bam_RNA4/", "RNA", rna_idx)
+                forward, reverse = get_reference(RNA_path+"corrected_bam_RNA4/", "RNA", rna_idx, starr)
             
             reference = grace_period_bins(ref_file, 5, file_source)
             a_forward, a_reverse = p.map(align, [[forward, reference, file_source], [reverse, reference, file_source]])
 
 
-            count_mapped_bins(True, a_forward, ref_file, forward, "RNA", rna_idx, design, "f", outdir)
-            count_mapped_bins(True, a_reverse, ref_file, reverse, "RNA", rna_idx, design, "r", outdir)
+            count_mapped_bins(starr, a_forward, ref_file, forward, "RNA", rna_idx, design, "f", outdir)
+            count_mapped_bins(starr, a_reverse, ref_file, reverse, "RNA", rna_idx, design, "r", outdir)
                 
     ories = ["f", "r"]
     for orie in ories:
-        input_ls = append_file(dir, design, orie, dnas, rnas)
-        combine(input_ls, dir, design, orie)
+        input_ls = append_file(dir, design, orie, dnas, rnas, starr)
+        combine(input_ls, dir, design, orie, starr)
 
 
 def parse_args():
@@ -87,6 +95,7 @@ def parse_args():
     parser.add_argument("-o", '--outdir', required=True, help="Output directory")
     parser.add_argument('--enh_file', required=True, help="Path to .bed enhancer file, should be in the format of eight or four required fields. (chr, chromStart, chromEnd, name, score, strand, thickStart, thickEnd).")
     parser.add_argument('--design', required=True, default="full", help="Processing the full or partial element.")
+    parser.add_argument('--starr', default="deep_ATAC_STARR", help="One of the STARR datasets (deep_ATAC_STARR, WHG_STARR)")
 
     return parser.parse_args()
 
@@ -109,8 +118,8 @@ def main(args):
     file_source = "PINTS" if ref_file.shape[1] == 8 else "EnhancerNet"
 
     if args.design == "full":
-        extract_reads(ref_file, file_source, args.design, args.outdir)
-        select_pairs(args.outdir, args.design)
+        extract_reads(ref_file, file_source, args.design, args.outdir, args.starr)
+        select_pairs(args.outdir, args.design, args.starr)
 
     ### Grep the partial enhancer reads
     elif file_source == "PINTS": #partial
@@ -121,12 +130,12 @@ def main(args):
         for design in designs:
             ref_path = args.outdir+"/design_ref/divergent_60bp_without_"+design+".bed"
             ref_file = pybedtools.BedTool(ref_path).to_dataframe(disable_auto_names=True, header=None)
-            extract_reads(ref_file, file_source, design, args.outdir)
-            merge_pairs(args.outdir, design)
+            extract_reads(ref_file, file_source, design, args.outdir, args.starr)
+            merge_pairs(args.outdir, design, args.starr)
 
     else: #partial EnhancerNet
-        extract_reads(ref_file, file_source, args.design, args.outdir)
-        select_pairs(args.outdir, args.design)
+        extract_reads(ref_file, file_source, args.design, args.outdir, args.starr)
+        select_pairs(args.outdir, args.design, args.starr)
         
     pybedtools.cleanup(remove_all=True)
     shutil.rmtree(temp_dir)
